@@ -422,6 +422,72 @@ impl Game {
             .sum();
         1 + num_empty_free_cells
     }
+
+    // move all the cards you can to the foundations. returns true if you moved any
+    pub fn auto_move_to_foundations(&mut self) -> bool {
+        if self.floating != None || self.floating_stack != None {
+            return false;
+        }
+        let mut moved_something = false;
+        'loop_til_you_do_nothing: loop {
+            for (index, maybe_card) in self
+                .columns
+                .iter()
+                .map(|c| match c.last() {
+                    Some(&v) => Some(v.clone()),
+                    None => None,
+                })
+                .enumerate()
+                .collect::<Vec<(usize, Option<Card>)>>()
+            {
+                if let Some(card) = maybe_card {
+                    if self.can_auto_move(card) {
+                        self.pick_up_card(CardAddress::Column(index)).unwrap();
+                        self.place(CardAddress::Foundation(card.suit)).unwrap();
+                        moved_something = true;
+                        continue 'loop_til_you_do_nothing;
+                    }
+                }
+            }
+            break;
+        }
+        moved_something
+    }
+
+    fn can_auto_move(&self, card: Card) -> bool {
+        if self.foundations[usize::from(card.suit)].rank != card.rank - 1 {
+            return false;
+        }
+        match card.suit.colour() {
+            Colour::Red => {
+                let clubs = self.foundations[usize::from(Suit::Clubs)].rank >= card.rank - 1
+                    || self.can_auto_move(Card {
+                        rank: card.rank - 1,
+                        suit: Suit::Clubs,
+                    });
+                let spades = self.foundations[usize::from(Suit::Spades)].rank >= card.rank - 1
+                    || self.can_auto_move(Card {
+                        rank: card.rank - 1,
+                        suit: Suit::Spades,
+                    });
+                println!("can auto-move {:?}: {}", card, clubs && spades);
+                clubs && spades
+            }
+            Colour::Black => {
+                let diamonds = self.foundations[usize::from(Suit::Diamonds)].rank >= card.rank - 1
+                    || self.can_auto_move(Card {
+                        rank: card.rank - 1,
+                        suit: Suit::Diamonds,
+                    });
+                let hearts = self.foundations[usize::from(Suit::Hearts)].rank >= card.rank - 1
+                    || self.can_auto_move(Card {
+                        rank: card.rank - 1,
+                        suit: Suit::Hearts,
+                    });
+                hearts && diamonds
+            }
+        }
+    }
 }
 
 #[test]
@@ -573,20 +639,14 @@ fn test_moves() {
         })
     );
     assert_eq!(
-        spread.place(CardAddress::Foundation(4)),
-        Err(MoveError::IllegalAddress {
-            address: CardAddress::Foundation(4)
-        })
-    );
-    assert_eq!(
-        spread.place(CardAddress::Foundation(1)),
+        spread.place(CardAddress::Foundation(Suit::Hearts)),
         Err(MoveError::CannotPlace {
-            to: CardAddress::Foundation(1)
+            to: CardAddress::Foundation(Suit::Hearts)
         })
     );
-    assert_eq!(spread.place(CardAddress::Foundation(2)), Ok(()));
+    assert_eq!(spread.place(CardAddress::Foundation(Suit::Spades)), Ok(()));
     assert_eq!(
-        spread.get(CardAddress::Foundation(2)),
+        spread.get(CardAddress::Foundation(Suit::Spades)),
         Ok(Card {
             rank: 1,
             suit: Suit::Spades
@@ -618,6 +678,82 @@ fn test_moves() {
     assert_eq!(spread.place(CardAddress::Column(0)), Ok(()));
     assert_eq!(spread.pick_up_card(CardAddress::FreeCell(2)), Ok(()));
     assert_eq!(spread.place(CardAddress::Column(2)), Ok(()));
+}
+
+#[test]
+fn auto_move() {
+    let mut game = Game::empty();
+    game.columns.push(
+        (1..=5)
+            .rev()
+            .map(|n| Card {
+                rank: n,
+                suit: Suit::Spades,
+            })
+            .collect::<Vec<Card>>(),
+    );
+    game.columns.push(vec![
+        Card {
+            rank: 3,
+            suit: Suit::Clubs,
+        },
+        Card {
+            rank: 4,
+            suit: Suit::Clubs,
+        },
+        Card {
+            rank: 2,
+            suit: Suit::Clubs,
+        },
+        Card {
+            rank: 1,
+            suit: Suit::Clubs,
+        },
+    ]);
+    game.columns.push(vec![
+        Card {
+            rank: 3,
+            suit: Suit::Diamonds,
+        },
+        Card {
+            rank: 2,
+            suit: Suit::Diamonds,
+        },
+        Card {
+            rank: 1,
+            suit: Suit::Diamonds,
+        },
+        Card {
+            rank: 2,
+            suit: Suit::Hearts,
+        },
+        Card {
+            rank: 1,
+            suit: Suit::Hearts,
+        },
+    ]);
+    game.auto_move_to_foundations();
+    assert_eq!(
+        game.foundations,
+        vec![
+            Card {
+                rank: 2,
+                suit: Suit::Clubs,
+            },
+            Card {
+                rank: 3,
+                suit: Suit::Diamonds,
+            },
+            Card {
+                rank: 2,
+                suit: Suit::Hearts,
+            },
+            Card {
+                rank: 4,
+                suit: Suit::Spades,
+            },
+        ]
+    )
 }
 
 #[test]
