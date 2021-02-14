@@ -26,6 +26,47 @@ pub struct GameView {
     pub floating: Option<Vec<Card>>,
 }
 
+impl fmt::Display for GameView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for cell in &self.free_cells {
+            if let Some(card) = cell {
+                write!(f, "{} ", card)?;
+            } else {
+                write!(f, "   ")?;
+            }
+        }
+        for foundation in &self.foundations {
+            write!(f, "{} ", foundation)?;
+        }
+        write!(f, "\n")?;
+        for row in 0.. {
+            let mut printed_something = false;
+            let mut print_string = String::new();
+            for column in &self.columns {
+                if let Some(card) = column.get(row) {
+                    print_string += &format!("{} ", card).as_str();
+                    printed_something = true;
+                } else {
+                    print_string += &format!("   ").as_str();
+                }
+            }
+            if printed_something {
+                write!(f, "{}\n", print_string)?;
+            } else {
+                break;
+            }
+        }
+        if let Some(cards) = &self.floating {
+            write!(f, "-> ")?;
+            for card in cards {
+                write!(f, "{},", card);
+            }
+            write!(f, "\n")?;
+        }
+        Ok(())
+    }
+}
+
 type CardColumn = Vec<Card>;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -41,6 +82,27 @@ impl Card {
 
     fn fits_on_foundation(&self, base: &Card) -> bool {
         self.suit == base.suit && self.rank == base.rank + 1
+    }
+}
+
+impl fmt::Display for Card {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rank_ch = match self.rank {
+            0 => "_".to_string(),
+            10 => "X".to_string(),
+            11 => "J".to_string(),
+            12 => "Q".to_string(),
+            13 => "K".to_string(),
+            n @ (1..=9) => n.to_string(),
+            n => panic!("bad card {}", n),
+        };
+        let suit_ch = match self.suit {
+            Suit::Clubs => "C",
+            Suit::Diamonds => "D",
+            Suit::Hearts => "H",
+            Suit::Spades => "S",
+        };
+        write!(f, "{}{}", rank_ch, suit_ch)
     }
 }
 
@@ -470,7 +532,6 @@ impl Game {
                         rank: card.rank - 1,
                         suit: Suit::Spades,
                     });
-                println!("can auto-move {:?}: {}", card, clubs && spades);
                 clubs && spades
             }
             Colour::Black => {
