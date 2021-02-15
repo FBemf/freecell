@@ -3,7 +3,7 @@ use std::fmt;
 
 use rand::seq::SliceRandom;
 use rand_chacha::rand_core::SeedableRng;
-use rand_chacha::ChaCha20Rng;
+use rand_chacha::ChaCha12Rng;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, MoveError>;
@@ -104,7 +104,11 @@ impl fmt::Display for Card {
             Suit::Hearts => "♥",
             Suit::Spades => "♠",
         };
-        write!(f, "{}", rank + suit)
+        if self.rank == 0 {
+            write!(f, "   ")
+        } else {
+            write!(f, "{:3}", rank + suit)
+        }
     }
 }
 
@@ -230,7 +234,7 @@ impl Game {
                 deck.push(Card::new(rank, suit));
             }
         }
-        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let mut rng = ChaCha12Rng::seed_from_u64(seed);
         deck.shuffle(&mut rng);
         for &n in &[7, 7, 7, 7, 6, 6, 6] {
             let (new, remainder) = deck.split_at(n);

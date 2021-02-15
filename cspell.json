@@ -9,9 +9,11 @@
         "blit",
         "cardengine",
         "chacha",
+        "freecell",
         "rects",
         "rgba",
         "seedable",
+        "structopt",
         "thiserror",
         "unifont"
     ]

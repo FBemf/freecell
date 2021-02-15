@@ -1,13 +1,11 @@
 use std::convert::{TryFrom, TryInto};
 
 use anyhow::{anyhow, Result};
-
 use sdl2::mouse::MouseState;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::surface::Surface;
-
 use sdl2_unifont::renderer::SurfaceRenderer;
 
 use super::cardengine::*;
@@ -46,7 +44,7 @@ pub struct DisplaySettings {
     pub card_color: Color,
     pub black_text: Color,
     pub red_text: Color,
-    pub win_text: Color,
+    pub ui_text: Color,
 }
 
 impl DisplaySettings {
@@ -78,7 +76,7 @@ impl DisplaySettings {
             card_color: Color::RGB(0xff, 0xff, 0xff),
             black_text: Color::RGB(0, 0, 0),
             red_text: Color::RGB(0xe0, 0x30, 0x30),
-            win_text: Color::RGB(0, 0, 0),
+            ui_text: Color::RGB(0, 0, 0),
         }
     }
 
@@ -287,7 +285,7 @@ pub fn draw_text<'a>(
     canvas: &mut Canvas<Surface<'a>>,
     settings: &DisplaySettings,
     text: &str,
-    renderer: &mut SurfaceRenderer,
+    renderer: &SurfaceRenderer,
 ) -> Result<()> {
     let text_surf = renderer
         .draw(text)

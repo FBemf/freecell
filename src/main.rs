@@ -2,11 +2,15 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
+use clipboard::{ClipboardContext, ClipboardProvider};
+use rand::prelude::*;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseState;
 use sdl2::pixels::Color;
+use sdl2::rect::Rect;
 use sdl2_unifont::renderer::SurfaceRenderer;
+use structopt::StructOpt;
 
 mod cardengine;
 mod display;
@@ -14,7 +18,17 @@ mod display;
 use cardengine::*;
 use display::*;
 
+#[derive(StructOpt)]
+#[structopt(name = "freecell", about = "FreeCell solitaire game")]
+struct Opt {
+    /// Seed to randomly generate game from
+    #[structopt(short, long)]
+    seed: Option<u64>,
+}
+
 fn main() -> Result<()> {
+    let opt = Opt::from_args();
+
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
@@ -24,6 +38,12 @@ fn main() -> Result<()> {
         .build()
         .context("building window")?;
 
+    let mut clipboard: Option<ClipboardContext> = if let Ok(c) = ClipboardProvider::new() {
+        Some(c)
+    } else {
+        None
+    };
+
     let mut canvas = window.into_canvas().build().context("building canvas")?;
     let mut event_pump = sdl_context
         .event_pump()
@@ -32,7 +52,12 @@ fn main() -> Result<()> {
     let display_settings =
         DisplaySettings::new(canvas.viewport().width(), canvas.viewport().height());
 
-    let mut game = Game::new_game(1);
+    let seed = if let Some(s) = opt.seed {
+        s
+    } else {
+        rand::thread_rng().gen()
+    };
+    let mut game = Game::new_game(seed);
     let mut undo_stack = Vec::new();
     let mut view = game.view();
 
@@ -41,6 +66,7 @@ fn main() -> Result<()> {
     canvas.present();
 
     let mut last_auto_moved = Instant::now();
+    let mut status_text: Option<(Instant, String)> = None;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -111,6 +137,20 @@ fn main() -> Result<()> {
                             view = game.view();
                         }
                     }
+                    Keycode::S => {
+                        if let Some(ctx) = &mut clipboard {
+                            if let Err(e) = ctx.set_contents(seed.to_string()) {
+                                status_text = Some((Instant::now(), "Error".to_string()));
+                                eprintln!("Couldn't access clipboard. {}", e);
+                            } else {
+                                status_text = Some((Instant::now(), "Copied!".to_string()));
+                            }
+                        } else {
+                            status_text = Some((Instant::now(), "Clipboard Error".to_string()));
+                            eprintln!("Clipboard is unavailable");
+                            eprintln!("Seed is {}", seed);
+                        }
+                    }
                     _ => {}
                 },
                 _ => {}
@@ -127,20 +167,39 @@ fn main() -> Result<()> {
         let mut frame = frame
             .into_canvas()
             .map_err(|s| anyhow!("getting event pump: {}", s))?;
+
+        let corner_text = if let Some((instant, text)) = status_text.clone() {
+            if instant.elapsed() > Duration::from_secs(5) {
+                status_text = None;
+            }
+            text
+        } else {
+            format!("seed: {}", seed)
+        };
+        let renderer = SurfaceRenderer::new(display_settings.ui_text, Color::RGBA(0, 0, 0, 0));
+        let text_rect = Rect::new(0, 0, 200, 50);
+        renderer
+            .draw(&corner_text)
+            .map_err(|e| anyhow!("drawing text: {}", e))?
+            .blit(None, frame.surface_mut(), text_rect)
+            .map_err(|e| anyhow!("blit-ing text: {}", e))?;
+
         draw_game(
             &mut frame,
             &view,
             &display_settings,
             MouseState::new(&event_pump),
         )?;
-        let texture_creator = canvas.texture_creator();
+
         if game.is_won() {
             let mut renderer =
-                SurfaceRenderer::new(display_settings.win_text, Color::RGBA(0, 0, 0, 0));
+                SurfaceRenderer::new(display_settings.ui_text, Color::RGBA(0, 0, 0, 0));
             renderer.bold = true;
             renderer.scale = 8;
-            draw_text(&mut frame, &display_settings, "You Win!", &mut renderer)?;
+            draw_text(&mut frame, &display_settings, "You Win!", &renderer)?;
         }
+
+        let texture_creator = canvas.texture_creator();
         let frame_tex = texture_creator.create_texture_from_surface(frame.surface())?;
         canvas
             .copy(&frame_tex, None, None)
