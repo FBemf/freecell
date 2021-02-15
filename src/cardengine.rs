@@ -90,21 +90,21 @@ impl Card {
 
 impl fmt::Display for Card {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let rank_ch = match self.rank {
+        let rank = match self.rank {
             0 => "_".to_string(),
-            11 => " J".to_string(),
-            12 => " Q".to_string(),
-            13 => " K".to_string(),
-            n @ (1..=10) => format!("{:2}", n),
+            11 => "J".to_string(),
+            12 => "Q".to_string(),
+            13 => "K".to_string(),
+            n @ (1..=10) => n.to_string(),
             n => panic!("bad card {}", n),
         };
-        let suit_ch = match self.suit {
+        let suit = match self.suit {
             Suit::Clubs => "♣",
             Suit::Diamonds => "♦",
             Suit::Hearts => "♥",
             Suit::Spades => "♠",
         };
-        write!(f, "{}{}", rank_ch, suit_ch)
+        write!(f, "{}", rank + suit)
     }
 }
 
