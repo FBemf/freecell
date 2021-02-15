@@ -9,6 +9,7 @@
         "blit",
         "cardengine",
         "chacha",
+        "rects",
         "rgba",
         "seedable",
         "thiserror",

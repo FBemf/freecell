@@ -8,7 +8,7 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, MoveError>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Game {
     columns: Vec<CardColumn>,
     foundations: Vec<Card>, // when empty, a foundation holds a card with rank 0
@@ -31,7 +31,7 @@ impl fmt::Display for GameView {
             if let Some(card) = cell {
                 write!(f, "{} ", card)?;
             } else {
-                write!(f, "   ")?;
+                write!(f, "    ")?;
             }
         }
         for foundation in &self.foundations {
@@ -46,7 +46,7 @@ impl fmt::Display for GameView {
                     print_string += &format!("{} ", card).as_str();
                     printed_something = true;
                 } else {
-                    print_string += &format!("   ").as_str();
+                    print_string += &format!("    ").as_str();
                 }
             }
             if printed_something {
@@ -92,18 +92,17 @@ impl fmt::Display for Card {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rank_ch = match self.rank {
             0 => "_".to_string(),
-            10 => "T".to_string(),
-            11 => "J".to_string(),
-            12 => "Q".to_string(),
-            13 => "K".to_string(),
-            n @ (1..=9) => n.to_string(),
+            11 => " J".to_string(),
+            12 => " Q".to_string(),
+            13 => " K".to_string(),
+            n @ (1..=10) => format!("{:2}", n),
             n => panic!("bad card {}", n),
         };
         let suit_ch = match self.suit {
-            Suit::Clubs => "C",
-            Suit::Diamonds => "D",
-            Suit::Hearts => "H",
-            Suit::Spades => "S",
+            Suit::Clubs => "♣",
+            Suit::Diamonds => "♦",
+            Suit::Hearts => "♥",
+            Suit::Spades => "♠",
         };
         write!(f, "{}{}", rank_ch, suit_ch)
     }
@@ -170,7 +169,7 @@ impl fmt::Display for Suit {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CardAddress {
     Column(usize),
     Foundation(Suit),
@@ -189,27 +188,25 @@ impl fmt::Display for CardAddress {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MoveError {
-    #[error("cannot move current cards to {to}")]
-    CannotPlace { to: CardAddress },
-    #[error("cannot place cards when no cards are floating")]
-    NoCardsHeld,
-    #[error("cannot pick up card: already holding cards")]
-    AlreadyHoldingCards,
-    #[error("cannot pick up {cards} cards from {column}")]
-    ImpossibleStack { column: usize, cards: usize },
-    #[error("address {address} is empty")]
-    EmptyAddress { address: CardAddress },
+    #[error("cannot move current cards to {to}: {reason}")]
+    CannotPlace { reason: String, to: CardAddress },
+    #[error("cannot pick up cards from {from}: {reason}")]
+    CannotPickUp { reason: String, from: CardAddress },
     #[error("address {address} does not exist on the board")]
     IllegalAddress { address: CardAddress },
-    #[error("cannot pick up zero cards")]
-    ZeroCardStack,
-    #[error("{cards} cards are not available in column {column}")]
-    TooManyCardsStack { cards: usize, column: usize },
-    #[error("a stack of cards cannot be placed at {to}")]
-    CannotPlaceStack { to: CardAddress },
-    #[error("cannot move off of a foundation pile")]
-    CannotMoveOffFoundation { foundation: Suit },
 }
+
+const REASON_ALREADY_HOLDING: &str = "already holding cards";
+const REASON_EMPTY_ADDRESS: &str = "empty address";
+const REASON_MOVE_FOUNDATION: &str = "cannot move off foundation";
+const REASON_EMPTY_STACK: &str = "cannot pick up zero-card stack";
+const REASON_UNSOUND_STACK: &str = "cards in stack don't stack";
+const REASON_STACK_TOO_LARGE: &str = "cannot pick up that many cards at once";
+const REASON_STACK_LARGER_THAN_COLUMN: &str = "there are not that many cards in that column";
+const REASON_DOES_NOT_FIT: &str = "those cards do not fit there";
+const REASON_NO_CARDS_HELD: &str = "cannot place cards when not holding cards";
+const REASON_CAN_ONLY_GET_STACK_FROM_COLUMN: &str =
+    "cannot pick up a stack from anywhere except a column";
 
 impl Game {
     fn empty() -> Self {
@@ -245,14 +242,17 @@ impl Game {
     }
 
     // look at a card
-    pub fn get(&self, address: CardAddress) -> Result<Card> {
+    fn _get(&self, address: CardAddress) -> Result<Card> {
         match address {
             CardAddress::Column(i) => {
                 if let Some(column) = self.columns.get(i) {
                     if let Some(&card) = column.last() {
                         Ok(card)
                     } else {
-                        Err(MoveError::EmptyAddress { address })
+                        Err(MoveError::CannotPickUp {
+                            from: address,
+                            reason: REASON_EMPTY_ADDRESS.to_string(),
+                        })
                     }
                 } else {
                     Err(MoveError::IllegalAddress { address })
@@ -264,45 +264,58 @@ impl Game {
             },
             CardAddress::FreeCell(i) => match self.free_cells.get(i) {
                 Some(Some(card)) => Ok(*card),
-                Some(None) => Err(MoveError::EmptyAddress { address }),
+                Some(None) => Err(MoveError::CannotPickUp {
+                    from: address,
+                    reason: REASON_EMPTY_ADDRESS.to_string(),
+                }),
                 None => Err(MoveError::IllegalAddress { address }),
             },
         }
     }
 
     // pick up a card from a position
-    pub fn pick_up_card(&mut self, address: CardAddress) -> Result<()> {
+    pub fn pick_up_card(&self, address: CardAddress) -> Result<Self> {
         if self.floating != None || self.floating_stack != None {
-            return Err(MoveError::AlreadyHoldingCards);
+            return Err(MoveError::CannotPickUp {
+                from: address,
+                reason: REASON_ALREADY_HOLDING.to_string(),
+            });
         }
         match address {
             CardAddress::Column(i) => {
-                if let Some(column) = &mut self.columns.get_mut(i) {
+                let mut result = self.clone();
+                if let Some(column) = &mut result.columns.get_mut(i) {
                     if let Some(card) = column.pop() {
-                        self.floating = Some(card);
-                        Ok(())
+                        result.floating = Some(card);
+                        Ok(result)
                     } else {
-                        Err(MoveError::EmptyAddress { address })
+                        Err(MoveError::CannotPickUp {
+                            from: address,
+                            reason: REASON_EMPTY_ADDRESS.to_string(),
+                        })
                     }
                 } else {
                     Err(MoveError::IllegalAddress { address })
                 }
             }
 
-            CardAddress::Foundation(s) => Err(MoveError::CannotMoveOffFoundation { foundation: s }),
+            CardAddress::Foundation(s) => Err(MoveError::CannotPickUp {
+                from: CardAddress::Foundation(s),
+                reason: REASON_MOVE_FOUNDATION.to_string(),
+            }),
 
             CardAddress::FreeCell(i) => {
-                if let Some(free_cell) = self.free_cells.get_mut(i) {
+                let mut result = self.clone();
+                if let Some(free_cell) = result.free_cells.get_mut(i) {
                     if let Some(card) = free_cell.clone() {
-                        *free_cell = if card.rank > 1 {
-                            Some(Card::new(card.rank - 1, card.suit))
-                        } else {
-                            None
-                        };
-                        self.floating = Some(card);
-                        Ok(())
+                        *free_cell = None;
+                        result.floating = Some(card);
+                        Ok(result)
                     } else {
-                        Err(MoveError::EmptyAddress { address })
+                        Err(MoveError::CannotPickUp {
+                            from: address,
+                            reason: REASON_EMPTY_ADDRESS.to_string(),
+                        })
                     }
                 } else {
                     Err(MoveError::IllegalAddress { address })
@@ -312,81 +325,99 @@ impl Game {
     }
 
     // try to pick up a stack of cards from a position
-    pub fn pick_up_stack(&mut self, address: usize, number_of_cards: usize) -> Result<()> {
-        if self.floating != None || self.floating_stack != None {
-            return Err(MoveError::AlreadyHoldingCards);
-        }
-        let max_possible_stack_size = self.max_stack_size();
-        match number_of_cards {
-            0 => Err(MoveError::ZeroCardStack),
-            1 => self.pick_up_card(CardAddress::Column(address)),
-            _ => {
-                if let Some(column) = &mut self.columns.get_mut(address) {
-                    if number_of_cards <= column.len() {
-                        if number_of_cards <= max_possible_stack_size {
-                            let it = column.iter().rev();
-                            for pair in it.clone().take(number_of_cards - 1).zip(it.skip(1)) {
-                                if !pair.0.stacks_on(pair.1) {
-                                    return Err(MoveError::ImpossibleStack {
-                                        cards: number_of_cards,
-                                        column: address,
-                                    });
+    pub fn pick_up_stack(&self, address: CardAddress, number_of_cards: usize) -> Result<Self> {
+        if let CardAddress::Column(column_number) = address {
+            if self.floating != None || self.floating_stack != None {
+                return Err(MoveError::CannotPickUp {
+                    from: address,
+                    reason: REASON_ALREADY_HOLDING.to_string(),
+                });
+            }
+            let max_possible_stack_size = self.max_stack_size();
+            match number_of_cards {
+                0 => Err(MoveError::CannotPickUp {
+                    from: address,
+                    reason: REASON_EMPTY_STACK.to_string(),
+                }),
+                1 => self.pick_up_card(address),
+                _ => {
+                    let mut result = self.clone();
+                    if let Some(column) = &mut result.columns.get_mut(column_number) {
+                        if number_of_cards <= column.len() {
+                            if number_of_cards <= max_possible_stack_size {
+                                let it = column.iter().rev();
+                                for pair in it.clone().take(number_of_cards - 1).zip(it.skip(1)) {
+                                    if !pair.0.stacks_on(pair.1) {
+                                        return Err(MoveError::CannotPickUp {
+                                            from: address,
+                                            reason: REASON_UNSOUND_STACK.to_string(),
+                                        });
+                                    }
                                 }
+                                let floating_stack =
+                                    column.split_off(column.len() - number_of_cards);
+                                result.floating_stack = Some(floating_stack);
+                                Ok(result)
+                            } else {
+                                Err(MoveError::CannotPickUp {
+                                    from: address,
+                                    reason: REASON_STACK_TOO_LARGE.to_string(),
+                                })
                             }
-                            let floating_stack = column.split_off(column.len() - number_of_cards);
-                            self.floating_stack = Some(floating_stack);
-                            Ok(())
                         } else {
-                            Err(MoveError::TooManyCardsStack {
-                                cards: number_of_cards,
-                                column: address,
+                            Err(MoveError::CannotPickUp {
+                                from: address,
+                                reason: REASON_STACK_LARGER_THAN_COLUMN.to_string(),
                             })
                         }
                     } else {
-                        Err(MoveError::TooManyCardsStack {
-                            cards: number_of_cards,
-                            column: address,
-                        })
+                        Err(MoveError::IllegalAddress { address })
                     }
-                } else {
-                    Err(MoveError::IllegalAddress {
-                        address: CardAddress::Column(address),
-                    })
                 }
             }
+        } else {
+            Err(MoveError::CannotPickUp {
+                from: address,
+                reason: REASON_CAN_ONLY_GET_STACK_FROM_COLUMN.to_string(),
+            })
         }
     }
 
     // place the held card at a position
-    pub fn place(&mut self, address: CardAddress) -> Result<()> {
+    pub fn place(&self, address: CardAddress) -> Result<Self> {
+        let mut result = self.clone();
         match address {
             CardAddress::Column(i) => {
-                if let Some(column) = &mut self.columns.get_mut(i) {
-                    if let Some(card) = self.floating {
+                if let Some(column) = &mut result.columns.get_mut(i) {
+                    if let Some(card) = result.floating {
                         if column.is_empty() || card.stacks_on(column.last().unwrap()) {
                             column.push(card);
-                            self.floating = None;
-                            Ok(())
+                            result.floating = None;
+                            Ok(result)
                         } else {
-                            Err(MoveError::CannotPlace { to: address })
+                            Err(MoveError::CannotPlace {
+                                to: address,
+                                reason: REASON_DOES_NOT_FIT.to_string(),
+                            })
                         }
-                    } else if let Some(cards) = &mut self.floating_stack {
+                    } else if let Some(cards) = &mut result.floating_stack {
                         if column.is_empty()
                             || cards.first().unwrap().stacks_on(column.last().unwrap())
                         {
                             column.append(cards);
-                            self.floating_stack = None;
-                            Ok(())
+                            result.floating_stack = None;
+                            Ok(result)
                         } else {
-                            dbg!(
-                                &cards,
-                                &column,
-                                &cards.first().unwrap().stacks_on(column.last().unwrap())
-                            );
-                            Err(MoveError::CannotPlace { to: address })
+                            Err(MoveError::CannotPlace {
+                                to: address,
+                                reason: REASON_DOES_NOT_FIT.to_string(),
+                            })
                         }
                     } else {
-                        Err(MoveError::NoCardsHeld)
+                        Err(MoveError::CannotPlace {
+                            to: address,
+                            reason: REASON_NO_CARDS_HELD.to_string(),
+                        })
                     }
                 } else {
                     Err(MoveError::IllegalAddress { address })
@@ -394,19 +425,23 @@ impl Game {
             }
 
             CardAddress::Foundation(s) => {
-                if let Some(foundation) = self.foundations.get_mut(usize::from(s)) {
-                    if let Some(card) = self.floating {
+                if let Some(foundation) = result.foundations.get_mut(usize::from(s)) {
+                    if let Some(card) = result.floating {
                         if card.fits_on_foundation(foundation) {
                             *foundation = card;
-                            self.floating = None;
-                            Ok(())
+                            result.floating = None;
+                            Ok(result)
                         } else {
                             Err(MoveError::CannotPlace {
                                 to: CardAddress::Foundation(s),
+                                reason: REASON_DOES_NOT_FIT.to_string(),
                             })
                         }
                     } else {
-                        Err(MoveError::NoCardsHeld)
+                        Err(MoveError::CannotPlace {
+                            to: address,
+                            reason: REASON_NO_CARDS_HELD.to_string(),
+                        })
                     }
                 } else {
                     Err(MoveError::IllegalAddress { address })
@@ -414,19 +449,23 @@ impl Game {
             }
 
             CardAddress::FreeCell(i) => {
-                if let Some(free_cell) = self.free_cells.get_mut(i) {
+                if let Some(free_cell) = result.free_cells.get_mut(i) {
                     if *free_cell == None {
-                        if let Some(card) = self.floating {
+                        if let Some(card) = result.floating {
                             *free_cell = Some(card);
-                            self.floating = None;
-                            Ok(())
+                            result.floating = None;
+                            Ok(result)
                         } else {
-                            Err(MoveError::CannotPlaceStack {
+                            Err(MoveError::CannotPlace {
                                 to: CardAddress::FreeCell(i),
+                                reason: REASON_DOES_NOT_FIT.to_string(),
                             })
                         }
                     } else {
-                        Err(MoveError::CannotPlace { to: address })
+                        Err(MoveError::CannotPlace {
+                            to: address,
+                            reason: REASON_DOES_NOT_FIT.to_string(),
+                        })
                     }
                 } else {
                     Err(MoveError::IllegalAddress { address })
@@ -461,35 +500,31 @@ impl Game {
         1 + num_empty_free_cells
     }
 
-    // move all the cards you can to the foundations. returns true if you moved any
-    pub fn auto_move_to_foundations(&mut self) -> bool {
+    // move a card to its foundation if possible. returns true if you moved any
+    pub fn auto_move_to_foundations(&self) -> Option<Self> {
         if self.floating != None || self.floating_stack != None {
-            return false;
+            return None;
         }
-        let mut moved_something = false;
-        'loop_til_you_do_nothing: loop {
-            for (index, maybe_card) in self
-                .columns
-                .iter()
-                .map(|c| match c.last() {
-                    Some(&v) => Some(v.clone()),
-                    None => None,
-                })
-                .enumerate()
-                .collect::<Vec<(usize, Option<Card>)>>()
-            {
-                if let Some(card) = maybe_card {
-                    if self.can_auto_move(card) {
-                        self.pick_up_card(CardAddress::Column(index)).unwrap();
-                        self.place(CardAddress::Foundation(card.suit)).unwrap();
-                        moved_something = true;
-                        continue 'loop_til_you_do_nothing;
-                    }
+        let mut result = self.clone();
+        for (index, column_card) in result
+            .columns
+            .iter()
+            .map(|c| match c.last() {
+                Some(&v) => Some(v.clone()),
+                None => None,
+            })
+            .enumerate()
+            .collect::<Vec<(usize, Option<Card>)>>()
+        {
+            if let Some(card) = column_card {
+                if result.can_auto_move(card) {
+                    result = result.pick_up_card(CardAddress::Column(index)).unwrap();
+                    result = result.place(CardAddress::Foundation(card.suit)).unwrap();
+                    return Some(result);
                 }
             }
-            break;
         }
-        moved_something
+        return None;
     }
 
     fn can_auto_move(&self, card: Card) -> bool {
@@ -514,7 +549,7 @@ impl Game {
         }
     }
 
-    fn is_won(&self) -> bool {
+    pub fn is_won(&self) -> bool {
         self.foundations
             .iter()
             .map(|c| c.rank)
@@ -550,46 +585,53 @@ fn test_moves() {
 
     // move 1-4 onto second column
     assert_eq!(
-        spread.get(CardAddress::Column(0)),
+        spread._get(CardAddress::Column(0)),
         Ok(Card::new(1, Suit::Spades))
     );
     assert_eq!(
-        spread.pick_up_stack(4, 3),
+        spread.pick_up_stack(CardAddress::Column(4), 3),
         Err(MoveError::IllegalAddress {
             address: CardAddress::Column(4)
         }),
     );
     assert_eq!(
-        spread.pick_up_stack(1, 4),
-        Err(MoveError::TooManyCardsStack {
-            column: 1,
-            cards: 4,
+        spread.pick_up_stack(CardAddress::Column(1), 4),
+        Err(MoveError::CannotPickUp {
+            from: CardAddress::Column(1),
+            reason: REASON_STACK_LARGER_THAN_COLUMN.to_string(),
         }),
     );
     assert_eq!(
-        spread.pick_up_stack(3, 3),
-        Err(MoveError::ImpossibleStack {
-            column: 3,
-            cards: 3,
+        spread.pick_up_stack(CardAddress::Column(3), 3),
+        Err(MoveError::CannotPickUp {
+            from: CardAddress::Column(3),
+            reason: REASON_UNSOUND_STACK.to_string(),
         }),
     );
-    assert_eq!(spread.pick_up_stack(0, 4), Ok(()));
+    spread = spread.pick_up_stack(CardAddress::Column(0), 4).unwrap();
     assert_eq!(
-        spread.pick_up_stack(0, 2),
-        Err(MoveError::AlreadyHoldingCards)
+        spread.pick_up_stack(CardAddress::Column(0), 2),
+        Err(MoveError::CannotPickUp {
+            from: CardAddress::Column(0),
+            reason: REASON_ALREADY_HOLDING.to_string(),
+        })
     );
     assert_eq!(
         spread.pick_up_card(CardAddress::Column(0)),
-        Err(MoveError::AlreadyHoldingCards)
+        Err(MoveError::CannotPickUp {
+            from: CardAddress::Column(0),
+            reason: REASON_ALREADY_HOLDING.to_string(),
+        })
     );
     assert_eq!(
-        spread.get(CardAddress::Column(0)),
+        spread._get(CardAddress::Column(0)),
         Ok(Card::new(5, Suit::Spades))
     );
     assert_eq!(
         spread.place(CardAddress::FreeCell(0)),
-        Err(MoveError::CannotPlaceStack {
-            to: CardAddress::FreeCell(0)
+        Err(MoveError::CannotPlace {
+            to: CardAddress::FreeCell(0),
+            reason: REASON_DOES_NOT_FIT.to_string(),
         })
     );
     assert_eq!(
@@ -598,66 +640,77 @@ fn test_moves() {
             address: CardAddress::Column(4)
         })
     );
-    assert_eq!(spread.place(CardAddress::Column(1)), Ok(()));
+    spread = spread.place(CardAddress::Column(1)).unwrap();
     assert_eq!(
-        spread.get(CardAddress::Column(1)),
+        spread._get(CardAddress::Column(1)),
         Ok(Card::new(1, Suit::Spades))
     );
     assert_eq!(
-        spread.pick_up_stack(1, 6),
-        Err(MoveError::TooManyCardsStack {
-            cards: 6,
-            column: 1
+        spread.pick_up_stack(CardAddress::Column(1), 6),
+        Err(MoveError::CannotPickUp {
+            from: CardAddress::Column(1),
+            reason: REASON_STACK_TOO_LARGE.to_string(),
         })
     );
-    assert_eq!(spread.pick_up_stack(1, 5), Ok(()));
-    assert_eq!(spread.place(CardAddress::Column(1)), Ok(()));
+    spread = spread.pick_up_stack(CardAddress::Column(1), 5).unwrap();
+    spread = spread.place(CardAddress::Column(1)).unwrap();
 
     // move ace onto foundation
-    assert_eq!(spread.pick_up_card(CardAddress::Column(1)), Ok(()));
+    spread = spread.pick_up_card(CardAddress::Column(1)).unwrap();
     assert_eq!(
         spread.place(CardAddress::Column(0)),
         Err(MoveError::CannotPlace {
-            to: CardAddress::Column(0)
+            to: CardAddress::Column(0),
+            reason: REASON_DOES_NOT_FIT.to_string(),
         })
     );
     assert_eq!(
         spread.place(CardAddress::Foundation(Suit::Hearts)),
         Err(MoveError::CannotPlace {
-            to: CardAddress::Foundation(Suit::Hearts)
+            to: CardAddress::Foundation(Suit::Hearts),
+            reason: REASON_DOES_NOT_FIT.to_string(),
         })
     );
-    assert_eq!(spread.place(CardAddress::Foundation(Suit::Spades)), Ok(()));
+    spread = spread.place(CardAddress::Foundation(Suit::Spades)).unwrap();
     assert_eq!(
-        spread.get(CardAddress::Foundation(Suit::Spades)),
+        spread._get(CardAddress::Foundation(Suit::Spades)),
         Ok(Card::new(1, Suit::Spades))
     );
 
     // manually move cards up to 5 from 2nd column back to first; moved 5 from first to new column
-    assert_eq!(spread.pick_up_card(CardAddress::Column(1)), Ok(()));
-    assert_eq!(spread.place(CardAddress::FreeCell(0)), Ok(()));
-    assert_eq!(spread.pick_up_card(CardAddress::Column(1)), Ok(()));
+    spread = spread.pick_up_card(CardAddress::Column(1)).unwrap();
+    spread = spread.place(CardAddress::FreeCell(0)).unwrap();
+    spread = spread.pick_up_card(CardAddress::Column(1)).unwrap();
     assert_eq!(
         spread.place(CardAddress::FreeCell(0)),
         Err(MoveError::CannotPlace {
-            to: CardAddress::FreeCell(0)
+            to: CardAddress::FreeCell(0),
+            reason: REASON_DOES_NOT_FIT.to_string(),
         })
     );
-    assert_eq!(spread.place(CardAddress::FreeCell(1)), Ok(()));
-    assert_eq!(spread.pick_up_card(CardAddress::Column(1)), Ok(()));
-    assert_eq!(spread.place(CardAddress::FreeCell(2)), Ok(()));
-    assert_eq!(spread.pick_up_card(CardAddress::Column(0)), Ok(()));
-    assert_eq!(spread.place(CardAddress::FreeCell(3)), Ok(()));
-    assert_eq!(spread.pick_up_card(CardAddress::Column(1)), Ok(()));
-    assert_eq!(spread.place(CardAddress::Column(0)), Ok(()));
-    assert_eq!(spread.pick_up_card(CardAddress::FreeCell(2)), Ok(()));
-    assert_eq!(spread.place(CardAddress::Column(0)), Ok(()));
-    assert_eq!(spread.pick_up_card(CardAddress::FreeCell(1)), Ok(()));
-    assert_eq!(spread.place(CardAddress::Column(0)), Ok(()));
-    assert_eq!(spread.pick_up_card(CardAddress::FreeCell(0)), Ok(()));
-    assert_eq!(spread.place(CardAddress::Column(0)), Ok(()));
-    assert_eq!(spread.pick_up_card(CardAddress::FreeCell(2)), Ok(()));
-    assert_eq!(spread.place(CardAddress::Column(2)), Ok(()));
+    spread = spread.place(CardAddress::FreeCell(1)).unwrap();
+    spread = spread.pick_up_card(CardAddress::Column(1)).unwrap();
+    spread = spread.place(CardAddress::FreeCell(2)).unwrap();
+    spread = spread.pick_up_card(CardAddress::Column(0)).unwrap();
+    spread = spread.place(CardAddress::FreeCell(3)).unwrap();
+    spread = spread.pick_up_card(CardAddress::Column(1)).unwrap();
+    spread = spread.place(CardAddress::Column(0)).unwrap();
+    spread = spread.pick_up_card(CardAddress::FreeCell(2)).unwrap();
+    spread = spread.place(CardAddress::Column(0)).unwrap();
+    assert_eq!(
+        spread.pick_up_card(CardAddress::FreeCell(2)),
+        Err(MoveError::CannotPickUp {
+            from: CardAddress::FreeCell(2),
+            reason: REASON_EMPTY_ADDRESS.to_string(),
+        })
+    );
+    spread = spread.pick_up_card(CardAddress::FreeCell(1)).unwrap();
+    spread = spread.place(CardAddress::Column(0)).unwrap();
+    spread = spread.pick_up_card(CardAddress::FreeCell(0)).unwrap();
+    spread = spread.place(CardAddress::Column(0)).unwrap();
+    println!("{}", spread.view());
+    spread = spread.pick_up_card(CardAddress::FreeCell(3)).unwrap();
+    let _ = spread.place(CardAddress::Column(2)).unwrap();
 }
 
 #[test]
@@ -682,7 +735,9 @@ fn auto_move() {
         Card::new(2, Suit::Hearts),
         Card::new(1, Suit::Hearts),
     ]);
-    game.auto_move_to_foundations();
+    while let Some(new_state) = game.auto_move_to_foundations() {
+        game = new_state;
+    }
     assert_eq!(
         game.foundations,
         vec![
