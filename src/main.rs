@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     let mut undo_stack = Vec::new();
     let mut view = game.view();
 
-    canvas.set_draw_color(Color::RGB(0xf0, 0xf0, 0xf0));
+    canvas.set_draw_color(display_settings.background);
     canvas.clear();
     canvas.present();
 
@@ -145,7 +145,7 @@ fn main() -> Result<()> {
         let frame_tex = texture_creator.create_texture_from_surface(frame.surface())?;
         if game.is_won() {
             let mut renderer =
-                SurfaceRenderer::new(Color::RGB(0xff, 0xff, 0xff), Color::RGBA(0, 0, 0, 0));
+                SurfaceRenderer::new(display_settings.win_text, Color::RGBA(0, 0, 0, 0));
             draw_text(&mut frame, &display_settings, "You Win!", &mut renderer)?;
         }
         canvas
@@ -194,6 +194,12 @@ struct DisplaySettings {
     card_width: u32,
     canvas_width: u32,
     canvas_height: u32,
+    background: Color,
+    card_border: Color,
+    card_color: Color,
+    black_text: Color,
+    red_text: Color,
+    win_text: Color,
 }
 
 impl DisplaySettings {
@@ -218,6 +224,12 @@ impl DisplaySettings {
             card_width,
             canvas_width,
             canvas_height,
+            background: Color::RGB(0xd0, 0xd0, 0xd0),
+            card_border: Color::RGB(0, 0, 0),
+            card_color: Color::RGB(0xff, 0xff, 0xff),
+            black_text: Color::RGB(0, 0, 0),
+            red_text: Color::RGB(0xe0, 0x30, 0x30),
+            win_text: Color::RGB(0xff, 0xff, 0xff),
         }
     }
 
@@ -378,27 +390,32 @@ fn draw_game<'a>(
     let old_color = canvas.draw_color();
 
     for card_rect in get_card_rects(view, settings) {
-        draw_card(canvas, card_rect.card, card_rect.rect)?;
+        draw_card(canvas, settings, card_rect.card, card_rect.rect)?;
     }
     for (card, rect) in get_floating_rects(view, settings, mouse.x(), mouse.y()) {
-        draw_card(canvas, card, rect)?;
+        draw_card(canvas, settings, card, rect)?;
     }
     canvas.set_draw_color(old_color);
     Ok(())
 }
 
-fn draw_card<'a>(canvas: &mut Canvas<Surface<'a>>, card: Card, rect: Rect) -> Result<()> {
-    canvas.set_draw_color(Color::RGB(0xff, 0xff, 0xff));
+fn draw_card<'a>(
+    canvas: &mut Canvas<Surface<'a>>,
+    settings: &DisplaySettings,
+    card: Card,
+    rect: Rect,
+) -> Result<()> {
+    canvas.set_draw_color(settings.card_color);
     canvas
         .fill_rect(rect)
         .map_err(|e| anyhow!("filling rect: {}", e))?;
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
+    canvas.set_draw_color(settings.card_border);
     canvas
         .draw_rect(rect)
         .map_err(|e| anyhow!("drawing rect: {}", e))?;
     let writing_color = match card.suit {
-        Suit::Clubs | Suit::Spades => Color::RGB(0, 0, 0),
-        Suit::Hearts | Suit::Diamonds => Color::RGB(0xe0, 0x30, 0x30),
+        Suit::Clubs | Suit::Spades => settings.black_text,
+        Suit::Hearts | Suit::Diamonds => settings.red_text,
     };
     let mut renderer = SurfaceRenderer::new(writing_color, Color::RGBA(0, 0, 0, 0));
     renderer.bold = true;
