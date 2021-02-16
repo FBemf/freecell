@@ -8,7 +8,7 @@ use sdl2::render::Canvas;
 use sdl2::surface::Surface;
 use sdl2_unifont::renderer::SurfaceRenderer;
 
-use super::cardengine::*;
+use super::engine::*;
 
 pub struct CardRect {
     pub card: Card,
@@ -76,7 +76,7 @@ impl DisplaySettings {
             card_color: Color::RGB(0xff, 0xff, 0xff),
             black_text: Color::RGB(0, 0, 0),
             red_text: Color::RGB(0xe0, 0x30, 0x30),
-            ui_text: Color::RGB(0, 0, 0),
+            ui_text: Color::RGB(0xff, 0xff, 0xff),
         }
     }
 
