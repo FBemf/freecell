@@ -45,12 +45,16 @@ impl GameUndoStack {
 
         self.history.push((false, old_state));
 
-        // if we're manually re-doing a move, pop it off the redo stack
+        // if we're manually re-doing a move, pop it off the redo stack.
+        // otherwise, if this is a non-floating move, wipe the redo stack.
+        // if it's a floating state, it might be part of a no-op
         if let Some(undone_state) = self.undo_history.last() {
             if &new_state == undone_state {
                 self.undo_history.pop();
             } else {
-                self.undo_history = Vec::new();
+                if !new_state.has_floating() {
+                    self.undo_history = Vec::new();
+                }
             }
         }
 
@@ -79,6 +83,7 @@ impl GameUndoStack {
 
     pub fn undo(&mut self, state: Game) -> Game {
         self.undo_history.push(state);
+        // undo all sneak updates and floating states and then one more
         while let Some((sneak, previous_state)) = self.history.pop() {
             if !sneak && !previous_state.has_floating() {
                 return previous_state;
@@ -137,6 +142,7 @@ mod test {
             ],
             Vec::new(),
             Vec::new(),
+            vec![Card::new(8, Suit::Hearts)],
         ]);
         let mut undo_stack = GameUndoStack::new();
 
@@ -184,5 +190,29 @@ mod test {
         game = undo_stack.sneak_update(game.clone(), game.auto_move_to_foundations().unwrap());
         game = undo_stack.undo(game);
         assert_eq!(game, game_state_2);
+
+        // make sure no-ops don't destroy redo stack
+        game = undo_stack.undo(game);
+        assert_eq!(game, game_state_1);
+        game = undo_stack.update(
+            game.clone(),
+            game.pick_up_card(CardAddress::Column(3)).unwrap(),
+        );
+        game = undo_stack.update(game.clone(), game.place(CardAddress::Column(3)).unwrap());
+        game = undo_stack.redo(game);
+        assert_eq!(game, game_state_2);
+
+        // make sure actual ops do
+        game = undo_stack.undo(game);
+        assert_eq!(game, game_state_1);
+        game = undo_stack.update(
+            game.clone(),
+            game.pick_up_card(CardAddress::Column(3)).unwrap(),
+        );
+        game = undo_stack.update(game.clone(), game.place(CardAddress::Column(2)).unwrap());
+        assert_ne!(game, game_state_2);
+        let game_state_3 = game.clone();
+        game = undo_stack.redo(game);
+        assert_eq!(game, game_state_3);
     }
 }
