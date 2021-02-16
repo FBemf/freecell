@@ -46,9 +46,13 @@ struct Opt {
     /// Save file to load
     #[structopt(short, long)]
     load: Option<PathBuf>,
+    /// Output nothing to stdout or stderr
+    #[structopt(short, long)]
+    quiet: bool,
 }
 
 struct State {
+    opt: Opt,
     game: Game,
     view: GameView,
     undo_stack: GameUndoStack,
@@ -62,6 +66,7 @@ struct State {
 
 fn main() -> Result<()> {
     let cli_options = Opt::from_args();
+    env_logger::init();
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -103,11 +108,13 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
     let display_settings =
         DisplaySettings::new(canvas.viewport().width(), canvas.viewport().height());
 
-    let (seed, game, undo_stack) = if let Some(path) = opt.load {
-        if let Some(_) = opt.seed {
-            eprintln!("Ignoring seed in favour of loading from file");
+    let (seed, game, undo_stack) = if let Some(path) = &opt.load {
+        if !opt.quiet {
+            if let Some(_) = opt.seed {
+                eprintln!("Ignoring seed in favour of loading from file");
+            }
+            eprintln!("Loading from {:?}", path);
         }
-        eprintln!("Loading from {:?}", path);
         load(path)?
     } else {
         let seed = if let Some(s) = opt.seed {
@@ -115,7 +122,9 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
         } else {
             rand::thread_rng().gen()
         };
-        eprintln!("Seed is {}", seed);
+        if !opt.quiet {
+            eprintln!("Seed is {}", seed);
+        }
         (seed, Game::new_game(seed), GameUndoStack::new())
     };
 
@@ -129,6 +138,7 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
     let status_text: Option<(Instant, String)> = None;
 
     Ok(State {
+        opt,
         canvas,
         clipboard,
         display_settings,
@@ -272,22 +282,31 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                 if let Some(ctx) = &mut state.clipboard {
                     if let Err(e) = ctx.set_contents(state.seed.to_string()) {
                         state.status_text = Some((Instant::now(), "Error".to_string()));
-                        eprintln!("Couldn't access clipboard. {}", e);
+                        if !state.opt.quiet {
+                            eprintln!("Couldn't access clipboard {}", e);
+                        }
                     } else {
                         state.status_text = Some((Instant::now(), "Copied!".to_string()));
                     }
                 } else {
                     state.status_text = Some((Instant::now(), "Clipboard Error".to_string()));
-                    eprintln!("Clipboard is unavailable");
+                    if !state.opt.quiet {
+                        eprintln!("Clipboard is unavailable");
+                    }
                 }
             }
             Keycode::S => match save(state.seed, &state.game, &state.undo_stack) {
                 Ok(filename) => {
                     state.status_text = Some((Instant::now(), format!("Saved to {:?}", filename)));
-                    eprintln!("Saved to {:?}", filename);
+                    if !state.opt.quiet {
+                        eprintln!("Saved to {:?}", filename);
+                    }
                 }
-                Err(_) => {
+                Err(e) => {
                     state.status_text = Some((Instant::now(), "Save Error".to_string()));
+                    if !state.opt.quiet {
+                        eprintln!("Error saving: {}", e);
+                    }
                 }
             },
             _ => {}
@@ -308,7 +327,7 @@ fn update(state: &mut State) {
 }
 
 // load game
-pub fn load(filename: PathBuf) -> Result<(u64, Game, GameUndoStack)> {
+pub fn load(filename: &PathBuf) -> Result<(u64, Game, GameUndoStack)> {
     let save = fs::read_to_string(filename)?;
     let result: (u64, Game, GameUndoStack) = serde_json::from_str(&save)?;
     Ok(result)

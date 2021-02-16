@@ -272,6 +272,10 @@ impl Game {
         }
     }
 
+    pub fn has_floating(&self) -> bool {
+        self.floating.is_some() || self.floating_stack.is_some()
+    }
+
     fn max_stack_size(&self) -> usize {
         let num_empty_free_cells: usize = self
             .free_cells

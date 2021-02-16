@@ -27,10 +27,10 @@ impl GameUndoStack {
         // no no-ops part two: if the new state has been previously visited,
         // and all the intervening states are states with floating cards,
         // jump back to the original instance of the state instead of adding a new one
-        if old_state.view().floating.is_some() {
+        if old_state.has_floating() {
             let mut new_length = None;
             for (n, (_, prev_state)) in self.history.iter().enumerate().rev() {
-                if prev_state.view().floating.is_none() {
+                if !prev_state.has_floating() {
                     if prev_state == &new_state {
                         new_length = Some(n);
                     }
@@ -80,7 +80,7 @@ impl GameUndoStack {
     pub fn undo(&mut self, state: Game) -> Game {
         self.undo_history.push(state);
         while let Some((sneak, previous_state)) = self.history.pop() {
-            if !sneak && previous_state.view().floating.is_none() {
+            if !sneak && !previous_state.has_floating() {
                 return previous_state;
             } else {
                 self.undo_history.push(previous_state);
@@ -92,7 +92,7 @@ impl GameUndoStack {
     pub fn redo(&mut self, state: Game) -> Game {
         self.history.push((false, state));
         while let Some(undone_state) = self.undo_history.pop() {
-            if undone_state.view().floating.is_none() {
+            if !undone_state.has_floating() {
                 return undone_state;
             } else {
                 self.history.push((false, undone_state));
