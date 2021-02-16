@@ -340,38 +340,6 @@ impl Game {
         spread
     }
 
-    // look at a card
-    fn _get(&self, address: CardAddress) -> Result<Card> {
-        match address {
-            CardAddress::Column(i) => {
-                if let Some(column) = self.columns.get(i) {
-                    if let Some(&card) = column.last() {
-                        Ok(card)
-                    } else {
-                        Err(MoveError::CannotPickUp {
-                            from: address,
-                            reason: REASON_EMPTY_ADDRESS.to_string(),
-                        })
-                    }
-                } else {
-                    Err(MoveError::IllegalAddress { address })
-                }
-            }
-            CardAddress::Foundation(s) => match self.foundations.get(usize::from(s)) {
-                Some(card) => Ok(*card),
-                None => Err(MoveError::IllegalAddress { address }),
-            },
-            CardAddress::FreeCell(i) => match self.free_cells.get(i) {
-                Some(Some(card)) => Ok(*card),
-                Some(None) => Err(MoveError::CannotPickUp {
-                    from: address,
-                    reason: REASON_EMPTY_ADDRESS.to_string(),
-                }),
-                None => Err(MoveError::IllegalAddress { address }),
-            },
-        }
-    }
-
     // pick up a card from a position
     pub fn pick_up_card(&self, address: CardAddress) -> Result<Self> {
         if self.floating != None || self.floating_stack != None {
@@ -684,8 +652,8 @@ fn test_moves() {
 
     // move 1-4 onto second column
     assert_eq!(
-        spread._get(CardAddress::Column(0)),
-        Ok(Card::new(1, Suit::Spades))
+        spread.view().columns[0].last().unwrap(),
+        &Card::new(1, Suit::Spades)
     );
     assert_eq!(
         spread.pick_up_stack(CardAddress::Column(4), 3),
@@ -723,8 +691,8 @@ fn test_moves() {
         })
     );
     assert_eq!(
-        spread._get(CardAddress::Column(0)),
-        Ok(Card::new(5, Suit::Spades))
+        spread.view().columns[0].last().unwrap(),
+        &Card::new(5, Suit::Spades)
     );
     assert_eq!(
         spread.place(CardAddress::FreeCell(0)),
@@ -741,8 +709,8 @@ fn test_moves() {
     );
     spread = spread.place(CardAddress::Column(1)).unwrap();
     assert_eq!(
-        spread._get(CardAddress::Column(1)),
-        Ok(Card::new(1, Suit::Spades))
+        spread.view().columns[1].last().unwrap(),
+        &Card::new(1, Suit::Spades)
     );
     assert_eq!(
         spread.pick_up_stack(CardAddress::Column(1), 6),
@@ -772,8 +740,8 @@ fn test_moves() {
     );
     spread = spread.place(CardAddress::Foundation(Suit::Spades)).unwrap();
     assert_eq!(
-        spread._get(CardAddress::Foundation(Suit::Spades)),
-        Ok(Card::new(1, Suit::Spades))
+        spread.view().foundations[usize::from(Suit::Spades)],
+        Card::new(1, Suit::Spades)
     );
 
     // manually move cards up to 5 from 2nd column back to first; moved 5 from first to new column
