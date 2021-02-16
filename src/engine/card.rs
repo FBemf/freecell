@@ -1,9 +1,11 @@
 use std::convert::TryFrom;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 pub type CardColumn = Vec<Card>;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Card {
     pub rank: u8,
     pub suit: Suit,
@@ -41,7 +43,7 @@ impl fmt::Display for Card {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Suit {
     Clubs,
     Diamonds,

@@ -4,6 +4,7 @@ use std::fmt;
 use rand::seq::SliceRandom;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
+use serde::{Deserialize, Serialize};
 
 use super::card::*;
 use super::error::*;
@@ -11,7 +12,7 @@ use super::error::*;
 #[cfg(test)]
 mod test;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Game {
     columns: Vec<CardColumn>,
     foundations: Vec<Card>, // when empty, a foundation holds a card with rank 0

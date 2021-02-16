@@ -1,3 +1,7 @@
+use std::env;
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -27,6 +31,9 @@ struct Opt {
     /// Seed to randomly generate game from
     #[structopt(short, long)]
     seed: Option<u64>,
+    /// Save file to load
+    #[structopt(short, long)]
+    load: Option<PathBuf>,
 }
 
 struct State {
@@ -84,13 +91,22 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
     let display_settings =
         DisplaySettings::new(canvas.viewport().width(), canvas.viewport().height());
 
-    let seed = if let Some(s) = opt.seed {
-        s
+    let (seed, game, undo_stack) = if let Some(path) = opt.load {
+        if let Some(_) = opt.seed {
+            eprintln!("Ignoring seed in favour of loading from file");
+        }
+        eprintln!("Loading from {:?}", path);
+        load(path)?
     } else {
-        rand::thread_rng().gen()
+        let seed = if let Some(s) = opt.seed {
+            s
+        } else {
+            rand::thread_rng().gen()
+        };
+        eprintln!("Seed is {}", seed);
+        (seed, Game::new_game(seed), GameUndoStack::new())
     };
-    let game = Game::new_game(seed);
-    let undo_stack = GameUndoStack::new();
+
     let view = game.view();
 
     canvas.set_draw_color(display_settings.background);
@@ -126,7 +142,7 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
         .map_err(|s| anyhow!("getting event pump: {}", s))?;
 
     let corner_text = if let Some((instant, text)) = state.status_text.clone() {
-        if instant.elapsed() > Duration::from_secs(5) {
+        if instant.elapsed() > Duration::from_secs(state.display_settings.text_display_secs) {
             state.status_text = None;
         }
         text
@@ -240,7 +256,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                 state.game = state.undo_stack.redo(state.game.clone());
                 state.view = state.game.view();
             }
-            Keycode::S => {
+            Keycode::C => {
                 if let Some(ctx) = &mut state.clipboard {
                     if let Err(e) = ctx.set_contents(state.seed.to_string()) {
                         state.status_text = Some((Instant::now(), "Error".to_string()));
@@ -251,9 +267,17 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                 } else {
                     state.status_text = Some((Instant::now(), "Clipboard Error".to_string()));
                     eprintln!("Clipboard is unavailable");
-                    eprintln!("Seed is {}", state.seed);
                 }
             }
+            Keycode::S => match save(state.seed, &state.game, &state.undo_stack) {
+                Ok(filename) => {
+                    state.status_text = Some((Instant::now(), format!("Saved to {:?}", filename)));
+                    eprintln!("Saved to {:?}", filename);
+                }
+                Err(_) => {
+                    state.status_text = Some((Instant::now(), "Save Error".to_string()));
+                }
+            },
             _ => {}
         },
         _ => {}
@@ -269,4 +293,28 @@ fn update(state: &mut State) {
             state.last_auto_moved = Instant::now();
         }
     }
+}
+
+// load game
+pub fn load(filename: PathBuf) -> Result<(u64, Game, GameUndoStack)> {
+    let save = fs::read_to_string(filename)?;
+    let result: (u64, Game, GameUndoStack) = serde_json::from_str(&save)?;
+    Ok(result)
+}
+
+// save game
+pub fn save(seed: u64, game: &Game, undo: &GameUndoStack) -> Result<PathBuf> {
+    let save = serde_json::to_string(&(seed, game, undo))?;
+    let dir = env::current_dir()?;
+    let name = "freecell_save.".to_string();
+    for n in 0.. {
+        let mut filename = dir.clone();
+        filename.push(name.clone() + &n.to_string());
+        if !filename.exists() {
+            let mut file = fs::File::create(filename.clone())?;
+            file.write_all(save.as_bytes())?;
+            return Ok(filename);
+        }
+    }
+    unreachable!();
 }
