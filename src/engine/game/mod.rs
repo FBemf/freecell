@@ -330,6 +330,12 @@ impl Game {
     }
 }
 
+pub fn _game_from_columns(columns: Vec<Vec<Card>>) -> Game {
+    let mut game = Game::empty();
+    game.columns = columns;
+    game
+}
+
 #[derive(Debug, PartialEq)]
 pub struct GameView {
     pub columns: Vec<Vec<Card>>,
