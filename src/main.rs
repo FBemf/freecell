@@ -211,7 +211,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
         }
 
         Event::MouseButtonDown { x, y, .. } => {
-            if state.view.floating.is_none() {
+            if !state.game.has_floating() {
                 for card_rect in get_card_rects(&state.view, &state.display_settings)
                     .iter()
                     .rev()
@@ -244,7 +244,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
         }
 
         Event::MouseButtonUp { x, y, .. } => {
-            if state.view.floating.is_some() {
+            if state.game.has_floating() {
                 let mut did_something = false;
                 for (address, rect) in get_placement_zones(&state.display_settings).iter() {
                     if rect_intersect(x, y, rect) {
