@@ -25,6 +25,18 @@ mod engine;
 use display::*;
 use engine::*;
 
+/// Play FreeCell
+///
+/// Sort all the cards into the top right by suit in ascending order in order to win.
+/// On the main board, you can stack cards on top of each other alternating colours.
+/// You have four free cells in the top left, each of which can hold any single card.
+///
+/// Undo your previous move with `U` or `Backspace`.
+/// Redo an undone move with `R` or `Enter`.
+///
+/// Press `S` to save your game.
+/// Press `C` to copy the game's seed to your clipboard.
+/// By loading from a seed, you can replay the same exact deal.
 #[derive(StructOpt)]
 #[structopt(name = "freecell", about = "FreeCell solitaire game")]
 struct Opt {
