@@ -190,10 +190,14 @@ pub fn get_card_rects(view: &GameView, settings: &DisplaySettings) -> Vec<CardRe
 pub fn get_placement_zones(settings: &DisplaySettings) -> Vec<(CardAddress, Rect)> {
     let mut zones = Vec::with_capacity(16);
     for n in 0..4 {
-        zones.push((
-            CardAddress::FreeCell(n),
-            settings.get_free_cell(n.try_into().unwrap()),
-        ));
+        let card = settings.get_free_cell(n.try_into().unwrap());
+        let zone = Rect::new(
+            card.x(),
+            card.y() - i32::try_from(settings.free_cell_offset).unwrap(),
+            card.width(),
+            card.height() + settings.free_cell_offset,
+        );
+        zones.push((CardAddress::FreeCell(n), zone));
     }
     for n in 0..4 {
         zones.push((

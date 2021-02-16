@@ -132,9 +132,14 @@ fn main() -> Result<()> {
                     keycode: Some(key), ..
                 } => match key {
                     Keycode::U => {
-                        if let Some(last_state) = undo_stack.pop() {
-                            game = last_state;
-                            view = game.view();
+                        while let Some(last_state) = undo_stack.pop() {
+                            if game != last_state {
+                                game = last_state;
+                                view = game.view();
+                                break;
+                            } else {
+                                eprintln!("Duplicate state on undo stack:\n{}", game.view());
+                            }
                         }
                     }
                     Keycode::S => {
