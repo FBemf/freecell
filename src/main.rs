@@ -33,7 +33,7 @@ fn main() -> Result<()> {
     let video_subsystem = sdl_context.video().unwrap();
 
     let window = video_subsystem
-        .window("FreeCell", 700, 700)
+        .window("FreeCell", 700, 800)
         .position_centered()
         .build()
         .context("building window")?;
@@ -58,7 +58,7 @@ fn main() -> Result<()> {
         rand::thread_rng().gen()
     };
     let mut game = Game::new_game(seed);
-    let mut undo_stack = Vec::new();
+    let mut undo_stack = GameUndoStack::new();
     let mut view = game.view();
 
     canvas.set_draw_color(display_settings.background);
@@ -82,8 +82,7 @@ fn main() -> Result<()> {
                                 if let Some(size) = card_rect.stack_size {
                                     match game.pick_up_stack(card_rect.address, size) {
                                         Ok(new_state) => {
-                                            undo_stack.push(game);
-                                            game = new_state;
+                                            game = undo_stack.update(game, new_state);
                                             view = game.view();
                                         }
                                         Err(MoveError::CannotPickUp { .. }) => {}
@@ -92,8 +91,7 @@ fn main() -> Result<()> {
                                 } else {
                                     match game.pick_up_card(card_rect.address) {
                                         Ok(new_state) => {
-                                            undo_stack.push(game);
-                                            game = new_state;
+                                            game = undo_stack.update(game, new_state);
                                             view = game.view();
                                         }
                                         Err(MoveError::CannotPickUp { .. }) => {}
@@ -113,7 +111,7 @@ fn main() -> Result<()> {
                                 match game.place(*address) {
                                     Ok(new_state) => {
                                         did_something = true;
-                                        game = new_state;
+                                        game = undo_stack.update(game, new_state);
                                         view = game.view();
                                     }
                                     Err(MoveError::CannotPlace { .. }) => {}
@@ -122,7 +120,7 @@ fn main() -> Result<()> {
                             }
                         }
                         if !did_something {
-                            game = undo_stack.pop().unwrap();
+                            game = undo_stack.undo(game);
                             view = game.view();
                         }
                     }
@@ -131,16 +129,13 @@ fn main() -> Result<()> {
                 Event::KeyDown {
                     keycode: Some(key), ..
                 } => match key {
-                    Keycode::U => {
-                        while let Some(last_state) = undo_stack.pop() {
-                            if game != last_state {
-                                game = last_state;
-                                view = game.view();
-                                break;
-                            } else {
-                                eprintln!("Duplicate state on undo stack:\n{}", game.view());
-                            }
-                        }
+                    Keycode::U | Keycode::Backspace => {
+                        game = undo_stack.undo(game);
+                        view = game.view();
+                    }
+                    Keycode::R | Keycode::Return => {
+                        game = undo_stack.redo(game);
+                        view = game.view();
                     }
                     Keycode::S => {
                         if let Some(ctx) = &mut clipboard {
@@ -213,7 +208,7 @@ fn main() -> Result<()> {
 
         if last_auto_moved.elapsed() >= Duration::from_secs_f64(0.2) {
             if let Some(new_state) = game.auto_move_to_foundations() {
-                game = new_state; // notably, not undo-able
+                game = undo_stack.sneak_update(game, new_state);
                 view = game.view();
                 last_auto_moved = Instant::now();
             }

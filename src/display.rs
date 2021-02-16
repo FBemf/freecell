@@ -71,7 +71,7 @@ impl DisplaySettings {
             canvas_height,
             card_v_margin: 0,
             card_h_margin: 4,
-            background: Color::RGB(0xe0, 0xe0, 0xe0),
+            background: Color::RGB(0x50, 0xa0, 0x50),
             card_border: Color::RGB(0, 0, 0),
             card_color: Color::RGB(0xff, 0xff, 0xff),
             black_text: Color::RGB(0, 0, 0),
@@ -192,24 +192,32 @@ pub fn get_placement_zones(settings: &DisplaySettings) -> Vec<(CardAddress, Rect
     for n in 0..4 {
         let card = settings.get_free_cell(n.try_into().unwrap());
         let zone = Rect::new(
-            card.x(),
+            card.x() - i32::try_from(settings.col_margin).unwrap() / 2,
             card.y() - i32::try_from(settings.free_cell_offset).unwrap(),
-            card.width(),
+            card.width() + settings.col_margin,
             card.height() + settings.free_cell_offset,
         );
         zones.push((CardAddress::FreeCell(n), zone));
     }
     for n in 0..4 {
-        zones.push((
-            CardAddress::Foundation(n.try_into().unwrap()),
-            settings.get_foundation(n.try_into().unwrap()),
-        ));
+        let card = settings.get_foundation(n.try_into().unwrap());
+        let zone = Rect::new(
+            card.x() - i32::try_from(settings.col_margin).unwrap() / 2,
+            card.y(),
+            card.width() + settings.col_margin,
+            card.height(),
+        );
+        zones.push((CardAddress::Foundation(n.try_into().unwrap()), zone));
     }
     for n in 0..8 {
-        zones.push((
-            CardAddress::Column(n),
-            settings.get_column(n.try_into().unwrap()),
-        ));
+        let card = settings.get_column(n.try_into().unwrap());
+        let zone = Rect::new(
+            card.x() - i32::try_from(settings.col_margin).unwrap() / 2,
+            card.y(),
+            card.width() + settings.col_margin,
+            card.height(),
+        );
+        zones.push((CardAddress::Column(n), zone));
     }
     zones
 }
