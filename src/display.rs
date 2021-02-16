@@ -45,6 +45,7 @@ pub struct DisplaySettings {
     pub black_text: Color,
     pub red_text: Color,
     pub ui_text: Color,
+    faint_card_color: Color,
 }
 
 impl DisplaySettings {
@@ -77,6 +78,7 @@ impl DisplaySettings {
             black_text: Color::RGB(0, 0, 0),
             red_text: Color::RGB(0xe0, 0x30, 0x30),
             ui_text: Color::RGB(0xff, 0xff, 0xff),
+            faint_card_color: Color::RGBA(0xff, 0xff, 0xff, 0x20),
         }
     }
 
@@ -247,6 +249,21 @@ pub fn draw_game<'a>(
     mouse: MouseState,
 ) -> Result<()> {
     let old_color = canvas.draw_color();
+
+    for n in 0..4 {
+        let rect = settings.get_free_cell(n);
+        canvas.set_draw_color(settings.faint_card_color);
+        canvas
+            .fill_rect(rect)
+            .map_err(|e| anyhow!("filling rect: {}", e))?;
+    }
+    for n in 0..8 {
+        let rect = settings.get_column_card(n, 0);
+        canvas.set_draw_color(settings.faint_card_color);
+        canvas
+            .fill_rect(rect)
+            .map_err(|e| anyhow!("filling rect: {}", e))?;
+    }
 
     for card_rect in get_card_rects(view, settings) {
         draw_card(canvas, settings, card_rect.card, card_rect.rect)?;

@@ -33,16 +33,10 @@ impl fmt::Display for Card {
             n @ (1..=10) => n.to_string(),
             n => panic!("bad card {}", n),
         };
-        let suit = match self.suit {
-            Suit::Clubs => "♣",
-            Suit::Diamonds => "♦",
-            Suit::Hearts => "♥",
-            Suit::Spades => "♠",
-        };
         if self.rank == 0 {
             write!(f, "   ")
         } else {
-            write!(f, "{:3}", rank + suit)
+            write!(f, "{:2}{}", rank, self.suit)
         }
     }
 }
@@ -99,10 +93,10 @@ impl TryFrom<usize> for Suit {
 impl fmt::Display for Suit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let suit_str = match self {
-            Suit::Clubs => "clubs",
-            Suit::Diamonds => "diamonds",
-            Suit::Hearts => "hearts",
-            Suit::Spades => "spades",
+            Suit::Clubs => "♣",
+            Suit::Diamonds => "♦",
+            Suit::Hearts => "♥",
+            Suit::Spades => "♠",
         };
         write!(f, "{}", suit_str)
     }
