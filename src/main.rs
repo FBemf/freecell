@@ -66,7 +66,6 @@ struct State {
 
 fn main() -> Result<()> {
     let cli_options = Opt::from_args();
-    env_logger::init();
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
