@@ -1,7 +1,6 @@
 use std::convert::{TryFrom, TryInto};
 
 use anyhow::{anyhow, Result};
-use sdl2::mouse::MouseState;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
@@ -57,13 +56,13 @@ pub struct UISettings {
     // colours
     pub background: Color,
     pub card_border: Color,
-    pub card_color: Color,
+    pub card_colour: Color,
     pub victory_text_writer: SurfaceRenderer,
     pub restart_text_writer: SurfaceRenderer,
     pub corner_text_writer: SurfaceRenderer,
     pub red_card_writer: SurfaceRenderer,
     pub black_card_writer: SurfaceRenderer,
-    faint_card_color: Color,
+    faint_card_colour: Color,
 }
 
 impl UISettings {
@@ -115,8 +114,8 @@ impl UISettings {
             auto_move_secs: 0.2,
             background: Color::RGB(0x50, 0xa0, 0x50),
             card_border: Color::RGB(0, 0, 0),
-            card_color: Color::RGB(0xff, 0xff, 0xff),
-            faint_card_color: Color::RGBA(0xff, 0xff, 0xff, 0x20),
+            card_colour: Color::RGB(0xff, 0xff, 0xff),
+            faint_card_colour: Color::RGBA(0xff, 0xff, 0xff, 0x20),
             red_card_writer,
             black_card_writer,
             victory_text_writer,
@@ -289,20 +288,20 @@ pub fn draw_game<'a>(
     canvas: &mut Canvas<Surface<'a>>,
     view: &GameView,
     settings: &UISettings,
-    mouse: MouseState,
+    mouse: (i32, i32),
 ) -> Result<()> {
-    let old_color = canvas.draw_color();
+    let old_colour = canvas.draw_color();
 
     for n in 0..4 {
         let rect = settings.get_free_cell(n);
-        canvas.set_draw_color(settings.faint_card_color);
+        canvas.set_draw_color(settings.faint_card_colour);
         canvas
             .fill_rect(rect)
             .map_err(|e| anyhow!("filling rect: {}", e))?;
     }
     for n in 0..8 {
         let rect = settings.get_column_card(n, 0);
-        canvas.set_draw_color(settings.faint_card_color);
+        canvas.set_draw_color(settings.faint_card_colour);
         canvas
             .fill_rect(rect)
             .map_err(|e| anyhow!("filling rect: {}", e))?;
@@ -311,10 +310,10 @@ pub fn draw_game<'a>(
     for card_rect in get_card_rects(view, settings) {
         draw_card(canvas, settings, card_rect.card, card_rect.rect)?;
     }
-    for (card, rect) in get_floating_rects(view, settings, mouse.x(), mouse.y()) {
+    for (card, rect) in get_floating_rects(view, settings, mouse.0, mouse.1) {
         draw_card(canvas, settings, card, rect)?;
     }
-    canvas.set_draw_color(old_color);
+    canvas.set_draw_color(old_colour);
     Ok(())
 }
 
@@ -324,7 +323,7 @@ pub fn draw_card<'a>(
     card: Card,
     rect: Rect,
 ) -> Result<()> {
-    canvas.set_draw_color(settings.card_color);
+    canvas.set_draw_color(settings.card_colour);
     canvas
         .fill_rect(rect)
         .map_err(|e| anyhow!("filling rect: {}", e))?;

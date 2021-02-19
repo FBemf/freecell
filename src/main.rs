@@ -49,10 +49,11 @@ struct Opt {
     quiet: bool,
 }
 
+// FSM regulating the "hold N to restart" state
 #[derive(Clone, PartialEq)]
 enum NewGameState {
     Starting(Instant),
-    Cooldown,
+    Cooldown,   // "cooldown" means "wait until N is released"
     Ready,
 }
 
@@ -182,11 +183,12 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
     };
     draw_text_corner(&mut frame, &state.ui_settings, &corner_text)?;
 
+    let mouse = MouseState::new(&event_pump);
     draw_game(
         &mut frame,
         &state.view,
         &state.ui_settings,
-        MouseState::new(&event_pump),
+        (mouse.x(), mouse.y()),
     )?;
 
     if let NewGameState::Starting(time) = state.new_game_timer {
@@ -347,6 +349,7 @@ fn update(state: &mut State) -> Result<()> {
     }
     if let NewGameState::Starting(time) = state.new_game_timer {
         if time.elapsed() >= Duration::from_secs_f64(state.ui_settings.new_game_secs) {
+            // restart game with new seed
             let seed: u64 = thread_rng().gen();
             state.seed = seed;
             state.game = Game::new_game(seed);
