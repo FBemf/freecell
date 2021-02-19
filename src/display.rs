@@ -26,30 +26,47 @@ pub fn rect_intersect(x: i32, y: i32, rect: &Rect) -> bool {
     x >= upper_left.0 && y >= upper_left.1 && x <= bottom_right.0 && y <= bottom_right.1
 }
 
-pub struct DisplaySettings {
+pub struct UISettings {
+    // margin around entire game
     h_border: u32,
     v_border: u32,
+    // vertical offset of free cells from foundations
     free_cell_offset: u32,
+    // margin between free cells and tableau
     tableau_border: u32,
+    // margin between columns
     col_margin: u32,
+    // vertical length of covered part of card
     card_overlap: u32,
+    // vertical length of uncovered part of card
     card_visible: u32,
+    // width of cards
     card_width: u32,
+    // height & width of window
     canvas_width: u32,
     canvas_height: u32,
-    card_v_margin: u32,
-    card_h_margin: u32,
+    // padding inside card
+    card_v_padding: u32,
+    card_h_padding: u32,
+    // how long to display UI text before it fades
     pub text_display_secs: u64,
+    // how long to hold key to restart
+    pub new_game_secs: f64,
+    // how long between auto-moves
+    pub auto_move_secs: f64,
+    // colours
     pub background: Color,
     pub card_border: Color,
     pub card_color: Color,
-    pub black_text: Color,
-    pub red_text: Color,
-    pub ui_text: Color,
+    pub victory_text_writer: SurfaceRenderer,
+    pub restart_text_writer: SurfaceRenderer,
+    pub corner_text_writer: SurfaceRenderer,
+    pub red_card_writer: SurfaceRenderer,
+    pub black_card_writer: SurfaceRenderer,
     faint_card_color: Color,
 }
 
-impl DisplaySettings {
+impl UISettings {
     pub fn new(canvas_width: u32, canvas_height: u32) -> Self {
         let columns = 8;
         let h_border = 20;
@@ -60,7 +77,27 @@ impl DisplaySettings {
         let card_visible = 40;
         let card_overlap = 40;
         let card_width = (canvas_width - 2 * h_border - (columns - 1) * col_margin) / columns;
-        DisplaySettings {
+
+        let mut red_card_writer =
+            SurfaceRenderer::new(Color::RGB(0xe0, 0x30, 0x30), Color::RGBA(0, 0, 0, 0));
+        red_card_writer.bold = true;
+        red_card_writer.scale = 2;
+        let mut black_card_writer =
+            SurfaceRenderer::new(Color::RGB(0, 0, 0), Color::RGBA(0, 0, 0, 0));
+        black_card_writer.bold = true;
+        black_card_writer.scale = 2;
+        let corner_text_writer =
+            SurfaceRenderer::new(Color::RGB(0xff, 0xff, 0xff), Color::RGBA(0, 0, 0, 0));
+        let mut victory_text_writer =
+            SurfaceRenderer::new(Color::RGB(0xff, 0xff, 0xff), Color::RGBA(0, 0, 0, 0));
+        victory_text_writer.bold = true;
+        victory_text_writer.scale = 8;
+        let mut restart_text_writer =
+            SurfaceRenderer::new(Color::RGB(0, 0, 0), Color::RGBA(0, 0, 0, 0));
+        restart_text_writer.bold = true;
+        restart_text_writer.scale = 5;
+
+        UISettings {
             h_border,
             v_border,
             free_cell_offset,
@@ -71,16 +108,20 @@ impl DisplaySettings {
             card_width,
             canvas_width,
             canvas_height,
-            card_v_margin: 0,
-            card_h_margin: 4,
+            card_v_padding: 0,
+            card_h_padding: 4,
             text_display_secs: 5,
+            new_game_secs: 2.5,
+            auto_move_secs: 0.2,
             background: Color::RGB(0x50, 0xa0, 0x50),
             card_border: Color::RGB(0, 0, 0),
             card_color: Color::RGB(0xff, 0xff, 0xff),
-            black_text: Color::RGB(0, 0, 0),
-            red_text: Color::RGB(0xe0, 0x30, 0x30),
-            ui_text: Color::RGB(0xff, 0xff, 0xff),
             faint_card_color: Color::RGBA(0xff, 0xff, 0xff, 0x20),
+            red_card_writer,
+            black_card_writer,
+            victory_text_writer,
+            restart_text_writer,
+            corner_text_writer,
         }
     }
 
@@ -156,7 +197,7 @@ impl DisplaySettings {
     }
 }
 
-pub fn get_card_rects(view: &GameView, settings: &DisplaySettings) -> Vec<CardRect> {
+pub fn get_card_rects(view: &GameView, settings: &UISettings) -> Vec<CardRect> {
     let mut board_rects = Vec::with_capacity(52);
     for (n, maybe_card) in view.free_cells.iter().enumerate() {
         if let Some(card) = maybe_card {
@@ -191,7 +232,7 @@ pub fn get_card_rects(view: &GameView, settings: &DisplaySettings) -> Vec<CardRe
     board_rects
 }
 
-pub fn get_placement_zones(settings: &DisplaySettings) -> Vec<(CardAddress, Rect)> {
+pub fn get_placement_zones(settings: &UISettings) -> Vec<(CardAddress, Rect)> {
     let mut zones = Vec::with_capacity(16);
     for n in 0..4 {
         let card = settings.get_free_cell(n.try_into().unwrap());
@@ -228,7 +269,7 @@ pub fn get_placement_zones(settings: &DisplaySettings) -> Vec<(CardAddress, Rect
 
 pub fn get_floating_rects(
     view: &GameView,
-    settings: &DisplaySettings,
+    settings: &UISettings,
     mouse_x: i32,
     mouse_y: i32,
 ) -> Vec<(Card, Rect)> {
@@ -247,7 +288,7 @@ pub fn get_floating_rects(
 pub fn draw_game<'a>(
     canvas: &mut Canvas<Surface<'a>>,
     view: &GameView,
-    settings: &DisplaySettings,
+    settings: &UISettings,
     mouse: MouseState,
 ) -> Result<()> {
     let old_color = canvas.draw_color();
@@ -279,7 +320,7 @@ pub fn draw_game<'a>(
 
 pub fn draw_card<'a>(
     canvas: &mut Canvas<Surface<'a>>,
-    settings: &DisplaySettings,
+    settings: &UISettings,
     card: Card,
     rect: Rect,
 ) -> Result<()> {
@@ -291,18 +332,15 @@ pub fn draw_card<'a>(
     canvas
         .draw_rect(rect)
         .map_err(|e| anyhow!("drawing rect: {}", e))?;
-    let writing_color = match card.suit {
-        Suit::Clubs | Suit::Spades => settings.black_text,
-        Suit::Hearts | Suit::Diamonds => settings.red_text,
+    let renderer = match card.suit {
+        Suit::Clubs | Suit::Spades => &settings.black_card_writer,
+        Suit::Hearts | Suit::Diamonds => &settings.red_card_writer,
     };
-    let mut renderer = SurfaceRenderer::new(writing_color, Color::RGBA(0, 0, 0, 0));
-    renderer.bold = true;
-    renderer.scale = 2;
     let text_rect = Rect::new(
-        rect.x() + i32::try_from(settings.card_h_margin).unwrap(),
-        rect.y() + i32::try_from(settings.card_v_margin).unwrap(),
-        rect.width() - 2 * settings.card_h_margin,
-        rect.height() - 2 * settings.card_v_margin,
+        rect.x() + i32::try_from(settings.card_h_padding).unwrap(),
+        rect.y() + i32::try_from(settings.card_v_padding).unwrap(),
+        rect.width() - 2 * settings.card_h_padding,
+        rect.height() - 2 * settings.card_v_padding,
     );
     renderer
         .draw(&format!("{}", card).as_str())
@@ -312,13 +350,13 @@ pub fn draw_card<'a>(
     Ok(())
 }
 
-pub fn draw_text<'a>(
+pub fn draw_victory_text<'a>(
     canvas: &mut Canvas<Surface<'a>>,
-    settings: &DisplaySettings,
+    settings: &UISettings,
     text: &str,
-    renderer: &SurfaceRenderer,
 ) -> Result<()> {
-    let text_surf = renderer
+    let text_surf = settings
+        .victory_text_writer
         .draw(text)
         .map_err(|e| anyhow!("drawing text: {}", e))?;
     text_surf
@@ -327,6 +365,40 @@ pub fn draw_text<'a>(
             canvas.surface_mut(),
             settings.centre_surface(&text_surf),
         )
+        .map_err(|e| anyhow!("blit-ing text: {}", e))?;
+    Ok(())
+}
+
+pub fn draw_restart_text<'a>(
+    canvas: &mut Canvas<Surface<'a>>,
+    settings: &UISettings,
+    text: &str,
+) -> Result<()> {
+    let text_surf = settings
+        .restart_text_writer
+        .draw(text)
+        .map_err(|e| anyhow!("drawing text: {}", e))?;
+    text_surf
+        .blit(
+            None,
+            canvas.surface_mut(),
+            settings.centre_surface(&text_surf),
+        )
+        .map_err(|e| anyhow!("blit-ing text: {}", e))?;
+    Ok(())
+}
+
+pub fn draw_text_corner<'a>(
+    canvas: &mut Canvas<Surface<'a>>,
+    settings: &UISettings,
+    text: &str,
+) -> Result<()> {
+    let text_rect = Rect::new(0, 0, settings.canvas_width, settings.canvas_height);
+    settings
+        .corner_text_writer
+        .draw(&text)
+        .map_err(|e| anyhow!("drawing text: {}", e))?
+        .blit(None, canvas.surface_mut(), text_rect)
         .map_err(|e| anyhow!("blit-ing text: {}", e))?;
     Ok(())
 }

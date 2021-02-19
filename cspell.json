@@ -9,6 +9,7 @@
         "blit",
         "cardengine",
         "chacha",
+        "cooldown",
         "freecell",
         "rects",
         "rgba",

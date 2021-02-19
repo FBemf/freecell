@@ -11,12 +11,9 @@ use rand::prelude::*;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseState;
-use sdl2::pixels::Color;
-use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 use sdl2::EventPump;
-use sdl2_unifont::renderer::SurfaceRenderer;
 use structopt::StructOpt;
 
 mod display;
@@ -34,10 +31,11 @@ use engine::*;
 /// Undo your previous move with `U` or `Backspace`.
 /// Redo an undone move with `R` or `Enter`.
 ///
+/// Hold `N` to start a new game with a random seed.
 /// Press `S` to save your game.
 /// Press `C` to copy the game's seed to your clipboard.
 /// By loading from a seed, you can replay the same exact deal.
-#[derive(StructOpt)]
+#[derive(Clone, StructOpt)]
 #[structopt(name = "freecell", about = "FreeCell solitaire game")]
 struct Opt {
     /// Seed to randomly generate game from
@@ -51,16 +49,27 @@ struct Opt {
     quiet: bool,
 }
 
+#[derive(Clone, PartialEq)]
+enum NewGameState {
+    Starting(Instant),
+    Cooldown,
+    Ready,
+}
+
 struct State {
     opt: Opt,
     game: Game,
     view: GameView,
     undo_stack: GameUndoStack,
-    display_settings: DisplaySettings,
+    ui_settings: UISettings,
     clipboard: Option<ClipboardContext>,
     canvas: Canvas<Window>,
+    // text to display in corner & when you started displaying it
     status_text: Option<(Instant, String)>,
+    // how long you've been holding the "new game" key
+    new_game_timer: NewGameState,
     seed: u64,
+    // how long it's been since the last time the game automatically moved a card to the foundation
     last_auto_moved: Instant,
 }
 
@@ -89,7 +98,7 @@ fn main() -> Result<()> {
         }
 
         draw_canvas(&mut state, &event_pump)?;
-        update(&mut state);
+        update(&mut state)?;
 
         sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
@@ -104,8 +113,7 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
         None
     };
 
-    let display_settings =
-        DisplaySettings::new(canvas.viewport().width(), canvas.viewport().height());
+    let ui_settings = UISettings::new(canvas.viewport().width(), canvas.viewport().height());
 
     let (seed, game, undo_stack) = if let Some(path) = &opt.load {
         if !opt.quiet {
@@ -129,21 +137,23 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
 
     let view = game.view();
 
-    canvas.set_draw_color(display_settings.background);
+    canvas.set_draw_color(ui_settings.background);
     canvas.clear();
     canvas.present();
 
     let last_auto_moved = Instant::now();
     let status_text: Option<(Instant, String)> = None;
+    let new_game_timer = NewGameState::Ready;
 
     Ok(State {
         opt,
         canvas,
         clipboard,
-        display_settings,
+        ui_settings,
         game,
         seed,
         status_text,
+        new_game_timer,
         undo_stack,
         view,
         last_auto_moved,
@@ -163,34 +173,34 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
         .map_err(|s| anyhow!("getting event pump: {}", s))?;
 
     let corner_text = if let Some((instant, text)) = state.status_text.clone() {
-        if instant.elapsed() > Duration::from_secs(state.display_settings.text_display_secs) {
+        if instant.elapsed() > Duration::from_secs(state.ui_settings.text_display_secs) {
             state.status_text = None;
         }
         text
     } else {
         format!("seed: {}", state.seed)
     };
-    let renderer = SurfaceRenderer::new(state.display_settings.ui_text, Color::RGBA(0, 0, 0, 0));
-    let text_rect = Rect::new(0, 0, 200, 50);
-    renderer
-        .draw(&corner_text)
-        .map_err(|e| anyhow!("drawing text: {}", e))?
-        .blit(None, frame.surface_mut(), text_rect)
-        .map_err(|e| anyhow!("blit-ing text: {}", e))?;
+    draw_text_corner(&mut frame, &state.ui_settings, &corner_text)?;
 
     draw_game(
         &mut frame,
         &state.view,
-        &state.display_settings,
+        &state.ui_settings,
         MouseState::new(&event_pump),
     )?;
 
-    if state.view.is_won() {
-        let mut renderer =
-            SurfaceRenderer::new(state.display_settings.ui_text, Color::RGBA(0, 0, 0, 0));
-        renderer.bold = true;
-        renderer.scale = 8;
-        draw_text(&mut frame, &state.display_settings, "You Win!", &renderer)?;
+    if let NewGameState::Starting(time) = state.new_game_timer {
+        let amount_elapsed: f64 = time.elapsed().as_secs_f64() / state.ui_settings.new_game_secs;
+        draw_restart_text(
+            &mut frame,
+            &state.ui_settings,
+            &format!(
+                "Shuffling{}",
+                ".".repeat((6.0 * amount_elapsed).floor() as usize)
+            ),
+        )?;
+    } else if state.view.is_won() {
+        draw_victory_text(&mut frame, &state.ui_settings, "You Win!")?;
     }
 
     let texture_creator = state.canvas.texture_creator();
@@ -212,10 +222,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
 
         Event::MouseButtonDown { x, y, .. } => {
             if !state.game.has_floating() {
-                for card_rect in get_card_rects(&state.view, &state.display_settings)
-                    .iter()
-                    .rev()
-                {
+                for card_rect in get_card_rects(&state.view, &state.ui_settings).iter().rev() {
                     if rect_intersect(x, y, &card_rect.rect) {
                         if let Some(size) = card_rect.stack_size {
                             match state.game.pick_up_stack(card_rect.address, size) {
@@ -246,7 +253,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
         Event::MouseButtonUp { x, y, .. } => {
             if state.game.has_floating() {
                 let mut did_something = false;
-                for (address, rect) in get_placement_zones(&state.display_settings).iter() {
+                for (address, rect) in get_placement_zones(&state.ui_settings).iter() {
                     if rect_intersect(x, y, rect) {
                         match state.game.place(*address) {
                             Ok(new_state) => {
@@ -269,18 +276,18 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
         Event::KeyDown {
             keycode: Some(key), ..
         } => match key {
-            Keycode::U | Keycode::Backspace => {
+            Keycode::Backspace => {
                 state.game = state.undo_stack.undo(state.game.clone());
                 state.view = state.game.view();
             }
-            Keycode::R | Keycode::Return => {
+            Keycode::Return => {
                 state.game = state.undo_stack.redo(state.game.clone());
                 state.view = state.game.view();
             }
             Keycode::C => {
                 if let Some(ctx) = &mut state.clipboard {
                     if let Err(e) = ctx.set_contents(state.seed.to_string()) {
-                        state.status_text = Some((Instant::now(), "Error".to_string()));
+                        state.status_text = Some((Instant::now(), "Clipboard Error".to_string()));
                         if !state.opt.quiet {
                             eprintln!("Couldn't access clipboard {}", e);
                         }
@@ -308,6 +315,20 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                     }
                 }
             },
+            Keycode::N => {
+                if state.new_game_timer == NewGameState::Ready {
+                    state.new_game_timer = NewGameState::Starting(Instant::now());
+                }
+            }
+            _ => {}
+        },
+
+        Event::KeyUp {
+            keycode: Some(key), ..
+        } => match key {
+            Keycode::N => {
+                state.new_game_timer = NewGameState::Ready;
+            }
             _ => {}
         },
         _ => {}
@@ -315,14 +336,31 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
     return Ok(false);
 }
 
-fn update(state: &mut State) {
-    if state.last_auto_moved.elapsed() >= Duration::from_secs_f64(0.2) {
+fn update(state: &mut State) -> Result<()> {
+    if state.last_auto_moved.elapsed() >= Duration::from_secs_f64(state.ui_settings.auto_move_secs)
+    {
         if let Some(new_state) = state.game.auto_move_to_foundations() {
             state.game = state.undo_stack.sneak_update(state.game.clone(), new_state);
             state.view = state.game.view();
             state.last_auto_moved = Instant::now();
         }
     }
+    if let NewGameState::Starting(time) = state.new_game_timer {
+        if time.elapsed() >= Duration::from_secs_f64(state.ui_settings.new_game_secs) {
+            let seed: u64 = thread_rng().gen();
+            state.seed = seed;
+            state.game = Game::new_game(seed);
+            state.undo_stack = GameUndoStack::new();
+            state.view = state.game.view();
+            state.new_game_timer = NewGameState::Cooldown;
+            state.status_text = None;
+            state.last_auto_moved = Instant::now();
+            if !state.opt.quiet {
+                eprintln!("Started new game. Seed is {}", seed);
+            }
+        }
+    }
+    Ok(())
 }
 
 // load game
