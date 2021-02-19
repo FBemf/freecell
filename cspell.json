@@ -11,12 +11,14 @@
         "chacha",
         "cooldown",
         "freecell",
+        "lookback",
         "rects",
         "rgba",
         "seedable",
         "serde",
         "structopt",
         "thiserror",
+        "undos",
         "unifont"
     ]
 }
