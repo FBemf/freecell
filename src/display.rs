@@ -73,9 +73,10 @@ impl UISettings {
         let free_cell_offset = 15;
         let tableau_border = 20;
         let col_margin = 15;
-        let card_visible = 40;
-        let card_overlap = 40;
         let card_width = (canvas_width - 2 * h_border - (columns - 1) * col_margin) / columns;
+        let card_height = card_width * 8 / 7;
+        let card_visible = card_height / 2;
+        let card_overlap = card_height / 2;
 
         let mut red_card_writer =
             SurfaceRenderer::new(Color::RGB(0xe0, 0x30, 0x30), Color::RGBA(0, 0, 0, 0));
