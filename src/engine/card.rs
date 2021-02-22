@@ -38,7 +38,8 @@ impl fmt::Display for Card {
         if self.rank == 0 {
             write!(f, "   ")
         } else {
-            write!(f, "{}{}", rank, self.suit)
+            let display_string = format!("{}{}", rank, self.suit);
+            write!(f, "{:3}", display_string)
         }
     }
 }

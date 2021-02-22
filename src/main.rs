@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -8,9 +9,10 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use clipboard::{ClipboardContext, ClipboardProvider};
 use rand::prelude::*;
-use sdl2::event::Event;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseState;
+use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 use sdl2::EventPump;
@@ -52,8 +54,8 @@ struct Opt {
 // FSM regulating the "hold N to restart" state
 #[derive(Clone, PartialEq)]
 enum NewGameState {
-    Starting(Instant),
-    Cooldown,   // "cooldown" means "wait until N is released"
+    Starting(Instant), // "starting" means "if N isn't released, the game will restart at <instant>"
+    Cooldown, // "cooldown" means "game just restarted, so N is still held, but we're no longer restarting"
     Ready,
 }
 
@@ -65,13 +67,13 @@ struct State {
     ui_settings: UISettings,
     clipboard: Option<ClipboardContext>,
     canvas: Canvas<Window>,
-    // text to display in corner & when you started displaying it
+    // text to display in corner & the time when it'll disappear
     status_text: Option<(Instant, String)>,
-    // how long you've been holding the "new game" key
+    // when you're holding the "new game" button, this is the instant after which it'll restart
     new_game_timer: NewGameState,
     seed: u64,
-    // how long it's been since the last time the game automatically moved a card to the foundation
-    last_auto_moved: Instant,
+    // how long until the game can automatically move a card to the foundation
+    next_auto_move: Instant,
 }
 
 fn main() -> Result<()> {
@@ -80,8 +82,9 @@ fn main() -> Result<()> {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
-        .window("FreeCell", 700, 800)
+        .window("FreeCell", 700, 700)
         .position_centered()
+        .resizable()
         .build()
         .context("building window")?;
     let canvas = window.into_canvas().build().context("building canvas")?;
@@ -142,7 +145,7 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
     canvas.clear();
     canvas.present();
 
-    let last_auto_moved = Instant::now();
+    let next_auto_move = Instant::now() + ui_settings.auto_move_secs;
     let status_text: Option<(Instant, String)> = None;
     let new_game_timer = NewGameState::Ready;
 
@@ -157,7 +160,7 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
         new_game_timer,
         undo_stack,
         view,
-        last_auto_moved,
+        next_auto_move,
     })
 }
 
@@ -173,15 +176,26 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
         .into_canvas()
         .map_err(|s| anyhow!("getting event pump: {}", s))?;
 
-    let corner_text = if let Some((instant, text)) = state.status_text.clone() {
-        if instant.elapsed() > Duration::from_secs(state.ui_settings.text_display_secs) {
+    let status_text = if let Some((instant, text)) = state.status_text.clone() {
+        if instant < Instant::now() {
             state.status_text = None;
         }
         text
     } else {
         format!("seed: {}", state.seed)
     };
-    draw_text_corner(&mut frame, &state.ui_settings, &corner_text)?;
+    let status_rect = Rect::new(
+        0,
+        0,
+        state.ui_settings.canvas_width,
+        state.ui_settings.canvas_height,
+    );
+    draw_text_rect(
+        &mut frame,
+        &state.ui_settings.status_text,
+        status_rect,
+        &status_text,
+    )?;
 
     let mouse = MouseState::new(&event_pump);
     draw_game(
@@ -191,18 +205,32 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
         (mouse.x(), mouse.y()),
     )?;
 
-    if let NewGameState::Starting(time) = state.new_game_timer {
-        let amount_elapsed: f64 = time.elapsed().as_secs_f64() / state.ui_settings.new_game_secs;
-        draw_restart_text(
+    if let NewGameState::Starting(restart_time) = state.new_game_timer {
+        let now = Instant::now();
+        if restart_time > now {
+            let time_remaining: f64 = (restart_time - now).as_secs_f64();
+            if time_remaining > 0.0 {
+                let proportion_elapsed: f64 = (state.ui_settings.new_game_secs.as_secs_f64()
+                    - time_remaining)
+                    / state.ui_settings.new_game_secs.as_secs_f64();
+                draw_text_centred(
+                    &mut frame,
+                    &state.ui_settings,
+                    &state.ui_settings.restart_text,
+                    &format!(
+                        "Shuffling{}",
+                        ".".repeat((6.0 * proportion_elapsed).floor() as usize)
+                    ),
+                )?;
+            }
+        }
+    } else if state.view.is_won() {
+        draw_text_centred(
             &mut frame,
             &state.ui_settings,
-            &format!(
-                "Shuffling{}",
-                ".".repeat((6.0 * amount_elapsed).floor() as usize)
-            ),
+            &state.ui_settings.victory_text,
+            "You Win!",
         )?;
-    } else if state.view.is_won() {
-        draw_victory_text(&mut frame, &state.ui_settings, "You Win!")?;
     }
 
     let texture_creator = state.canvas.texture_creator();
@@ -289,15 +317,24 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
             Keycode::C => {
                 if let Some(ctx) = &mut state.clipboard {
                     if let Err(e) = ctx.set_contents(state.seed.to_string()) {
-                        state.status_text = Some((Instant::now(), "Clipboard Error".to_string()));
+                        state.status_text = Some((
+                            Instant::now() + state.ui_settings.status_display_secs,
+                            "Clipboard Error".to_string(),
+                        ));
                         if !state.opt.quiet {
                             eprintln!("Couldn't access clipboard {}", e);
                         }
                     } else {
-                        state.status_text = Some((Instant::now(), "Copied!".to_string()));
+                        state.status_text = Some((
+                            Instant::now() + state.ui_settings.status_display_secs,
+                            "Copied!".to_string(),
+                        ));
                     }
                 } else {
-                    state.status_text = Some((Instant::now(), "Clipboard Error".to_string()));
+                    state.status_text = Some((
+                        Instant::now() + state.ui_settings.status_display_secs,
+                        "Clipboard Error".to_string(),
+                    ));
                     if !state.opt.quiet {
                         eprintln!("Clipboard is unavailable");
                     }
@@ -305,13 +342,19 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
             }
             Keycode::S => match save(state.seed, &state.game, &state.undo_stack) {
                 Ok(filename) => {
-                    state.status_text = Some((Instant::now(), format!("Saved to {:?}", filename)));
+                    state.status_text = Some((
+                        Instant::now() + state.ui_settings.status_display_secs,
+                        format!("Saved to {:?}", filename),
+                    ));
                     if !state.opt.quiet {
                         eprintln!("Saved to {:?}", filename);
                     }
                 }
                 Err(e) => {
-                    state.status_text = Some((Instant::now(), "Save Error".to_string()));
+                    state.status_text = Some((
+                        Instant::now() + state.ui_settings.status_display_secs,
+                        "Save Error".to_string(),
+                    ));
                     if !state.opt.quiet {
                         eprintln!("Error saving: {}", e);
                     }
@@ -319,7 +362,8 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
             },
             Keycode::N => {
                 if state.new_game_timer == NewGameState::Ready {
-                    state.new_game_timer = NewGameState::Starting(Instant::now());
+                    state.new_game_timer =
+                        NewGameState::Starting(Instant::now() + state.ui_settings.new_game_secs);
                 }
             }
             _ => {}
@@ -333,22 +377,37 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
             }
             _ => {}
         },
+
+        Event::Window {
+            win_event: event, ..
+        } => match event {
+            WindowEvent::Resized(width, height) => {
+                state
+                    .ui_settings
+                    .update_proportions(width.try_into().unwrap(), height.try_into().unwrap());
+                state.status_text = Some((
+                    Instant::now() + state.ui_settings.window_size_display_secs,
+                    format!("window size: ({} x {})", width, height),
+                ));
+            }
+            _ => {}
+        },
+
         _ => {}
     }
     return Ok(false);
 }
 
 fn update(state: &mut State) -> Result<()> {
-    if state.last_auto_moved.elapsed() >= Duration::from_secs_f64(state.ui_settings.auto_move_secs)
-    {
+    if state.next_auto_move <= Instant::now() {
         if let Some(new_state) = state.game.auto_move_to_foundations() {
             state.game = state.undo_stack.sneak_update(state.game.clone(), new_state);
             state.view = state.game.view();
-            state.last_auto_moved = Instant::now();
+            state.next_auto_move = Instant::now() + state.ui_settings.auto_move_secs;
         }
     }
     if let NewGameState::Starting(time) = state.new_game_timer {
-        if time.elapsed() >= Duration::from_secs_f64(state.ui_settings.new_game_secs) {
+        if time <= Instant::now() {
             // restart game with new seed
             let seed: u64 = thread_rng().gen();
             state.seed = seed;
@@ -357,7 +416,7 @@ fn update(state: &mut State) -> Result<()> {
             state.view = state.game.view();
             state.new_game_timer = NewGameState::Cooldown;
             state.status_text = None;
-            state.last_auto_moved = Instant::now();
+            state.next_auto_move = Instant::now() + state.ui_settings.auto_move_secs;
             if !state.opt.quiet {
                 eprintln!("Started new game. Seed is {}", seed);
             }

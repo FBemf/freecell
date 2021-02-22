@@ -1,4 +1,5 @@
 use std::convert::{TryFrom, TryInto};
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use sdl2::pixels::Color;
@@ -26,6 +27,7 @@ pub fn rect_intersect(x: i32, y: i32, rect: &Rect) -> bool {
 }
 
 pub struct UISettings {
+    columns: u32,
     // margin around entire game
     h_border: u32,
     v_border: u32,
@@ -42,87 +44,133 @@ pub struct UISettings {
     // width of cards
     card_width: u32,
     // height & width of window
-    canvas_width: u32,
-    canvas_height: u32,
+    pub canvas_width: u32,
+    pub canvas_height: u32,
     // padding inside card
     card_v_padding: u32,
     card_h_padding: u32,
     // how long to display UI text before it fades
-    pub text_display_secs: u64,
+    pub status_display_secs: Duration,
+    pub window_size_display_secs: Duration,
     // how long to hold key to restart
-    pub new_game_secs: f64,
+    pub new_game_secs: Duration,
     // how long between auto-moves
-    pub auto_move_secs: f64,
+    pub auto_move_secs: Duration,
     // colours
     pub background: Color,
     pub card_border: Color,
     pub card_colour: Color,
-    pub victory_text_writer: SurfaceRenderer,
-    pub restart_text_writer: SurfaceRenderer,
-    pub corner_text_writer: SurfaceRenderer,
-    pub red_card_writer: SurfaceRenderer,
-    pub black_card_writer: SurfaceRenderer,
+    pub victory_text: TextSettings,
+    pub restart_text: TextSettings,
+    pub status_text: TextSettings,
+    red_card_text: TextSettings,
+    black_card_text: TextSettings,
     faint_card_colour: Color,
 }
 
+#[derive(Clone)]
+pub struct TextSettings {
+    colour: Color,
+    scale: u32,
+    bold: bool,
+}
+
+impl TextSettings {
+    fn renderer(&self) -> SurfaceRenderer {
+        let mut renderer = SurfaceRenderer::new(self.colour, Color::RGBA(0, 0, 0, 0));
+        renderer.bold = self.bold;
+        renderer.scale = self.scale;
+        renderer
+    }
+}
+
 impl UISettings {
+    pub fn update_proportions(&mut self, canvas_width: u32, canvas_height: u32) {
+        self.canvas_width = canvas_width;
+        self.canvas_height = canvas_height;
+        let big_margin = (canvas_width as f64 / 35.0).ceil() as u32;
+        let small_margin = big_margin * 3 / 4;
+        self.h_border = big_margin;
+        self.v_border = big_margin;
+        self.tableau_border = big_margin;
+        self.free_cell_offset = small_margin;
+        self.col_margin = small_margin;
+        let test_width: i32 = (self.canvas_width as i32
+            - 2 * self.h_border as i32
+            - (self.columns as i32 - 1) * self.col_margin as i32)
+            / self.columns as i32;
+        if test_width > 0 {
+            self.card_width = test_width as u32;
+            let card_height = self.card_width * 8 / 7;
+            self.card_visible = card_height / 2;
+            self.card_overlap = card_height / 2;
+        } else {
+            self.card_width = 0;
+            self.card_visible = 0;
+            self.card_overlap = 0;
+        }
+    }
+
     pub fn new(canvas_width: u32, canvas_height: u32) -> Self {
         let columns = 8;
-        let h_border = 20;
-        let v_border = 20;
-        let free_cell_offset = 15;
-        let tableau_border = 20;
-        let col_margin = 15;
-        let card_width = (canvas_width - 2 * h_border - (columns - 1) * col_margin) / columns;
-        let card_height = card_width * 8 / 7;
-        let card_visible = card_height / 2;
-        let card_overlap = card_height / 2;
 
-        let mut red_card_writer =
-            SurfaceRenderer::new(Color::RGB(0xe0, 0x30, 0x30), Color::RGBA(0, 0, 0, 0));
-        red_card_writer.bold = true;
-        red_card_writer.scale = 2;
-        let mut black_card_writer =
-            SurfaceRenderer::new(Color::RGB(0, 0, 0), Color::RGBA(0, 0, 0, 0));
-        black_card_writer.bold = true;
-        black_card_writer.scale = 2;
-        let corner_text_writer =
-            SurfaceRenderer::new(Color::RGB(0xff, 0xff, 0xff), Color::RGBA(0, 0, 0, 0));
-        let mut victory_text_writer =
-            SurfaceRenderer::new(Color::RGB(0xff, 0xff, 0xff), Color::RGBA(0, 0, 0, 0));
-        victory_text_writer.bold = true;
-        victory_text_writer.scale = 8;
-        let mut restart_text_writer =
-            SurfaceRenderer::new(Color::RGB(0, 0, 0), Color::RGBA(0, 0, 0, 0));
-        restart_text_writer.bold = true;
-        restart_text_writer.scale = 5;
+        let red_card_text = TextSettings {
+            colour: Color::RGB(0xe0, 0x30, 0x30),
+            bold: true,
+            scale: 2,
+        };
+        let black_card_text = TextSettings {
+            colour: Color::RGB(0, 0, 0),
+            bold: true,
+            scale: 2,
+        };
+        let status_text = TextSettings {
+            colour: Color::RGB(0xff, 0xff, 0xff),
+            bold: false,
+            scale: 1,
+        };
+        let victory_text = TextSettings {
+            colour: Color::RGB(0xff, 0xff, 0xff),
+            bold: true,
+            scale: 8,
+        };
+        let restart_text = TextSettings {
+            colour: Color::RGB(0, 0, 0),
+            bold: true,
+            scale: 5,
+        };
 
-        UISettings {
-            h_border,
-            v_border,
-            free_cell_offset,
-            tableau_border,
-            col_margin,
-            card_overlap,
-            card_visible,
-            card_width,
-            canvas_width,
-            canvas_height,
+        let mut result = UISettings {
+            columns,
+            h_border: 0,
+            v_border: 0,
+            free_cell_offset: 0, //
+            tableau_border: 0,   //
+            col_margin: 0,       //
+            card_overlap: 0,     // these will be set dynamically, below
+            card_visible: 0,     //
+            card_width: 0,       //
+            canvas_width: 0,     //
+            canvas_height: 0,    //
             card_v_padding: 0,
             card_h_padding: 4,
-            text_display_secs: 5,
-            new_game_secs: 2.5,
-            auto_move_secs: 0.2,
+            status_display_secs: Duration::from_secs(5),
+            window_size_display_secs: Duration::from_secs(1),
+            new_game_secs: Duration::from_secs_f32(2.5),
+            auto_move_secs: Duration::from_secs_f32(0.2),
             background: Color::RGB(0x50, 0xa0, 0x50),
             card_border: Color::RGB(0, 0, 0),
             card_colour: Color::RGB(0xff, 0xff, 0xff),
             faint_card_colour: Color::RGBA(0xff, 0xff, 0xff, 0x20),
-            red_card_writer,
-            black_card_writer,
-            victory_text_writer,
-            restart_text_writer,
-            corner_text_writer,
-        }
+            red_card_text,
+            black_card_text,
+            victory_text,
+            restart_text,
+            status_text,
+        };
+
+        result.update_proportions(canvas_width, canvas_height);
+        result
     }
 
     fn get_free_cell(&self, n: u32) -> Rect {
@@ -185,15 +233,19 @@ impl UISettings {
         )
     }
 
-    fn centre_surface(&self, surface: &Surface) -> Rect {
-        let x = (self.canvas_width - surface.width()) / 2;
-        let y = (self.canvas_height - surface.height()) / 2;
-        Rect::new(
-            x.try_into().unwrap(),
-            y.try_into().unwrap(),
-            surface.width(),
-            surface.height(),
-        )
+    fn centre_surface(&self, surface: &Surface) -> Option<Rect> {
+        if surface.width() <= self.canvas_width && surface.height() <= self.canvas_height {
+            let x = (self.canvas_width - surface.width()) / 2;
+            let y = (self.canvas_height - surface.height()) / 2;
+            Some(Rect::new(
+                x.try_into().unwrap(),
+                y.try_into().unwrap(),
+                surface.width(),
+                surface.height(),
+            ))
+        } else {
+            None
+        }
     }
 }
 
@@ -332,73 +384,86 @@ pub fn draw_card<'a>(
     canvas
         .draw_rect(rect)
         .map_err(|e| anyhow!("drawing rect: {}", e))?;
-    let renderer = match card.suit {
-        Suit::Clubs | Suit::Spades => &settings.black_card_writer,
-        Suit::Hearts | Suit::Diamonds => &settings.red_card_writer,
+    let text_settings = match card.suit {
+        Suit::Clubs | Suit::Spades => &settings.black_card_text,
+        Suit::Hearts | Suit::Diamonds => &settings.red_card_text,
     };
-    let text_rect = Rect::new(
-        rect.x() + i32::try_from(settings.card_h_padding).unwrap(),
-        rect.y() + i32::try_from(settings.card_v_padding).unwrap(),
-        rect.width() - 2 * settings.card_h_padding,
-        rect.height() - 2 * settings.card_v_padding,
-    );
-    renderer
-        .draw(&format!("{}", card).as_str())
-        .map_err(|e| anyhow!("drawing text: {}", e))?
-        .blit(None, canvas.surface_mut(), text_rect)
-        .map_err(|e| anyhow!("blit-ing text: {}", e))?;
-    Ok(())
-}
-
-pub fn draw_victory_text<'a>(
-    canvas: &mut Canvas<Surface<'a>>,
-    settings: &UISettings,
-    text: &str,
-) -> Result<()> {
-    let text_surf = settings
-        .victory_text_writer
-        .draw(text)
-        .map_err(|e| anyhow!("drawing text: {}", e))?;
-    text_surf
-        .blit(
-            None,
-            canvas.surface_mut(),
-            settings.centre_surface(&text_surf),
+    if rect.width() > 2 * settings.card_h_padding && rect.height() > 2 * settings.card_v_padding {
+        let text_rect = Rect::new(
+            rect.x() + i32::try_from(settings.card_h_padding).unwrap(),
+            rect.y() + i32::try_from(settings.card_v_padding).unwrap(),
+            rect.width() - 2 * settings.card_h_padding,
+            rect.height() - 2 * settings.card_v_padding,
+        );
+        draw_text_rect(
+            canvas,
+            text_settings,
+            text_rect,
+            &format!("{}", card).as_str(),
         )
-        .map_err(|e| anyhow!("blit-ing text: {}", e))?;
-    Ok(())
+    } else {
+        Ok(())
+    }
 }
 
-pub fn draw_restart_text<'a>(
+pub fn draw_text_centred<'a>(
     canvas: &mut Canvas<Surface<'a>>,
-    settings: &UISettings,
+    ui_settings: &UISettings,
+    text_settings: &TextSettings,
     text: &str,
 ) -> Result<()> {
-    let text_surf = settings
-        .restart_text_writer
-        .draw(text)
-        .map_err(|e| anyhow!("drawing text: {}", e))?;
-    text_surf
-        .blit(
-            None,
-            canvas.surface_mut(),
-            settings.centre_surface(&text_surf),
-        )
-        .map_err(|e| anyhow!("blit-ing text: {}", e))?;
-    Ok(())
+    let mut dyn_text_settings = text_settings.clone();
+    while dyn_text_settings.scale > 0 {
+        let renderer = dyn_text_settings.renderer();
+        let surface = renderer
+            .draw(text)
+            .map_err(|e| anyhow!("drawing text: {}", e))?;
+        if let Some(rect) = ui_settings.centre_surface(&surface) {
+            surface
+                .blit(None, canvas.surface_mut(), rect)
+                .map_err(|e| anyhow!("blit-ing text: {}", e))?;
+            return Ok(());
+        } else {
+            if dyn_text_settings.bold {
+                dyn_text_settings.bold = false;
+            } else {
+                dyn_text_settings.scale -= 1;
+                if text_settings.bold {
+                    dyn_text_settings.bold = true;
+                }
+            }
+        }
+    }
+    return Ok(());
 }
 
-pub fn draw_text_corner<'a>(
+pub fn draw_text_rect<'a>(
     canvas: &mut Canvas<Surface<'a>>,
-    settings: &UISettings,
+    text_settings: &TextSettings,
+    rect: Rect,
     text: &str,
 ) -> Result<()> {
-    let text_rect = Rect::new(0, 0, settings.canvas_width, settings.canvas_height);
-    settings
-        .corner_text_writer
-        .draw(&text)
-        .map_err(|e| anyhow!("drawing text: {}", e))?
-        .blit(None, canvas.surface_mut(), text_rect)
-        .map_err(|e| anyhow!("blit-ing text: {}", e))?;
-    Ok(())
+    let mut dyn_text_settings = text_settings.clone();
+    while dyn_text_settings.scale > 0 {
+        let renderer = dyn_text_settings.renderer();
+        let surface = renderer
+            .draw(text)
+            .map_err(|e| anyhow!("drawing text: {}", e))?;
+        if surface.width() <= rect.width() && surface.height() <= rect.height() {
+            surface
+                .blit(None, canvas.surface_mut(), rect)
+                .map_err(|e| anyhow!("blit-ing text: {}", e))?;
+            return Ok(());
+        } else {
+            if dyn_text_settings.bold {
+                dyn_text_settings.bold = false;
+            } else {
+                dyn_text_settings.scale -= 1;
+                if text_settings.bold {
+                    dyn_text_settings.bold = true;
+                }
+            }
+        }
+    }
+    return Ok(());
 }
