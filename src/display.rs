@@ -81,7 +81,7 @@ impl Dimensions {
         };
         let corner_point_size = (h_border + free_cell_offset) as u16 / 2;
         let centre_point_size = canvas_height as u16 / 9;
-        let card_point_size = card_visible as u16 * 2 / 3;
+        let card_point_size = card_visible as u16 * 3 / 4;
 
         Dimensions {
             h_border,
@@ -194,7 +194,8 @@ fn load_fonts<'a, 'b: 'a>(
     dimensions: &Dimensions,
     ttf_context: &'b Sdl2TtfContext,
 ) -> Result<Fonts<'a, 'b>> {
-    let regular = include_bytes!("SourceCodePro-Regular.otf");
+    /*let regular = include_bytes!("TerminusTTF-4.47.0.ttf");
+    let bold = include_bytes!("TerminusTTF-Bold-4.47.0.ttf");
     let corner_font: Font<'a, 'static> = ttf_context
         .load_font_from_rwops(
             RWops::from_bytes(regular).map_err(|s| anyhow!("loading font: {}", s))?,
@@ -203,13 +204,33 @@ fn load_fonts<'a, 'b: 'a>(
         .map_err(|s| anyhow!("initializing font: {}", s))?;
     let centre_font: Font<'a, 'static> = ttf_context
         .load_font_from_rwops(
-            RWops::from_bytes(regular).map_err(|s| anyhow!("loading font: {}", s))?,
+            RWops::from_bytes(bold).map_err(|s| anyhow!("loading font: {}", s))?,
             shrink_to_terminus_size(dimensions.centre_point_size),
         )
         .map_err(|s| anyhow!("initializing font: {}", s))?;
     let card_font: Font<'a, 'static> = ttf_context
         .load_font_from_rwops(
+            RWops::from_bytes(bold).map_err(|s| anyhow!("loading font: {}", s))?,
+            shrink_to_terminus_size(dimensions.card_point_size),
+        )
+        .map_err(|s| anyhow!("initializing font: {}", s))?;*/
+    let regular = include_bytes!("SourceCodePro-Regular.otf");
+    let bold = include_bytes!("SourceCodePro-Bold.otf");
+    let corner_font: Font<'a, 'static> = ttf_context
+        .load_font_from_rwops(
             RWops::from_bytes(regular).map_err(|s| anyhow!("loading font: {}", s))?,
+            shrink_to_terminus_size(dimensions.corner_point_size),
+        )
+        .map_err(|s| anyhow!("initializing font: {}", s))?;
+    let centre_font: Font<'a, 'static> = ttf_context
+        .load_font_from_rwops(
+            RWops::from_bytes(bold).map_err(|s| anyhow!("loading font: {}", s))?,
+            shrink_to_terminus_size(dimensions.centre_point_size),
+        )
+        .map_err(|s| anyhow!("initializing font: {}", s))?;
+    let card_font: Font<'a, 'static> = ttf_context
+        .load_font_from_rwops(
+            RWops::from_bytes(bold).map_err(|s| anyhow!("loading font: {}", s))?,
             shrink_to_terminus_size(dimensions.card_point_size),
         )
         .map_err(|s| anyhow!("initializing font: {}", s))?;
