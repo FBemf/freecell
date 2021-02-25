@@ -185,29 +185,32 @@ struct Fonts<'a, 'b: 'a> {
     ttf_context: &'b Sdl2TtfContext,
 }
 
+fn shrink_to_terminus_size(n: u16) -> u16 {
+    let sizes = vec![12, 14, 16, 18, 20, 22, 28, 32];
+    sizes.iter().map(|x| (n / x) * x).max().unwrap()
+}
+
 fn load_fonts<'a, 'b: 'a>(
     dimensions: &Dimensions,
     ttf_context: &'b Sdl2TtfContext,
 ) -> Result<Fonts<'a, 'b>> {
+    let regular = include_bytes!("SourceCodePro-Regular.otf");
     let corner_font: Font<'a, 'static> = ttf_context
         .load_font_from_rwops(
-            RWops::from_bytes(include_bytes!("FiraCode-Regular.ttf"))
-                .map_err(|s| anyhow!("loading font: {}", s))?,
-            dimensions.corner_point_size,
+            RWops::from_bytes(regular).map_err(|s| anyhow!("loading font: {}", s))?,
+            shrink_to_terminus_size(dimensions.corner_point_size),
         )
         .map_err(|s| anyhow!("initializing font: {}", s))?;
     let centre_font: Font<'a, 'static> = ttf_context
         .load_font_from_rwops(
-            RWops::from_bytes(include_bytes!("FiraCode-Regular.ttf"))
-                .map_err(|s| anyhow!("loading font: {}", s))?,
-            dimensions.centre_point_size,
+            RWops::from_bytes(regular).map_err(|s| anyhow!("loading font: {}", s))?,
+            shrink_to_terminus_size(dimensions.centre_point_size),
         )
         .map_err(|s| anyhow!("initializing font: {}", s))?;
     let card_font: Font<'a, 'static> = ttf_context
         .load_font_from_rwops(
-            RWops::from_bytes(include_bytes!("FiraCode-Regular.ttf"))
-                .map_err(|s| anyhow!("loading font: {}", s))?,
-            dimensions.card_point_size,
+            RWops::from_bytes(regular).map_err(|s| anyhow!("loading font: {}", s))?,
+            shrink_to_terminus_size(dimensions.card_point_size),
         )
         .map_err(|s| anyhow!("initializing font: {}", s))?;
     Ok(Fonts {
