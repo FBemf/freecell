@@ -39,7 +39,7 @@ impl fmt::Display for Card {
             write!(f, "   ")
         } else {
             let display_string = format!("{}{}", rank, self.suit);
-            write!(f, "{:3}", display_string)
+            write!(f, "{}", display_string)
         }
     }
 }

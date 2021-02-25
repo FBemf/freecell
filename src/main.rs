@@ -59,10 +59,10 @@ enum NewGameState {
     Ready,
 }
 
+// holds the current state of the world
 struct State<'a, 'b: 'a> {
     opt: Opt,
     game: Game,
-    view: GameView,
     undo_stack: GameUndoStack,
     ui_settings: UISettings<'a, 'b>,
     clipboard: Option<ClipboardContext>,
@@ -113,7 +113,7 @@ fn main() -> Result<()> {
 
 fn initialize_state<'a>(
     opt: Opt,
-    mut canvas: Canvas<Window>,
+    canvas: Canvas<Window>,
     ttf_context: &Sdl2TtfContext,
 ) -> Result<State> {
     let clipboard: Option<ClipboardContext> = if let Ok(c) = ClipboardProvider::new() {
@@ -148,13 +148,7 @@ fn initialize_state<'a>(
         (seed, Game::new_game(seed), GameUndoStack::new())
     };
 
-    let view = game.view();
-
-    canvas.set_draw_color(ui_settings.background_colour());
-    canvas.clear();
-    canvas.present();
-
-    let next_auto_move = Instant::now() + ui_settings.auto_move_secs;
+    let next_auto_move = Instant::now() + ui_settings.timings().auto_move_secs;
     let status_text: Option<(Instant, String)> = None;
     let new_game_timer = NewGameState::Ready;
 
@@ -168,13 +162,11 @@ fn initialize_state<'a>(
         status_text,
         new_game_timer,
         undo_stack,
-        view,
         next_auto_move,
     })
 }
 
 fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
-    state.canvas.clear();
     let frame = sdl2::surface::Surface::new(
         state.canvas.viewport().width(),
         state.canvas.viewport().height(),
@@ -185,6 +177,14 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
         .into_canvas()
         .map_err(|s| anyhow!("getting event pump: {}", s))?;
 
+    let mouse = MouseState::new(&event_pump);
+    draw_game(
+        &mut frame,
+        &state.game.view(),
+        &state.ui_settings,
+        (mouse.x(), mouse.y()),
+    )?;
+
     let status_text = if let Some((instant, text)) = state.status_text.clone() {
         if instant < Instant::now() {
             state.status_text = None;
@@ -193,24 +193,17 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
     } else {
         format!("seed: {}", state.seed)
     };
-    draw_status_text(&state.ui_settings, &mut frame, &status_text)?;
 
-    let mouse = MouseState::new(&event_pump);
-    draw_game(
-        &mut frame,
-        &state.view,
-        &state.ui_settings,
-        (mouse.x(), mouse.y()),
-    )?;
+    draw_status_text(&state.ui_settings, &mut frame, &status_text)?;
 
     if let NewGameState::Starting(restart_time) = state.new_game_timer {
         let now = Instant::now();
         if restart_time > now {
             let time_remaining: f64 = (restart_time - now).as_secs_f64();
             if time_remaining > 0.0 {
-                let proportion_elapsed: f64 = (state.ui_settings.new_game_secs.as_secs_f64()
-                    - time_remaining)
-                    / state.ui_settings.new_game_secs.as_secs_f64();
+                let proportion_elapsed: f64 =
+                    (state.ui_settings.timings().new_game_secs.as_secs_f64() - time_remaining)
+                        / state.ui_settings.timings().new_game_secs.as_secs_f64();
                 draw_reset_text(
                     &state.ui_settings,
                     &mut frame,
@@ -221,10 +214,11 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
                 )?;
             }
         }
-    } else if state.view.is_won() {
+    } else if state.game.view().is_won() {
         draw_victory_text(&state.ui_settings, &mut frame, "You Win!")?;
     }
 
+    draw_background(&mut state.canvas, &state.ui_settings);
     let texture_creator = state.canvas.texture_creator();
     let frame_tex = texture_creator.create_texture_from_surface(frame.surface())?;
     state
@@ -244,14 +238,16 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
 
         Event::MouseButtonDown { x, y, .. } => {
             if !state.game.has_floating() {
-                for card_rect in get_card_rects(&state.view, &state.ui_settings).iter().rev() {
+                for card_rect in get_card_rects(&state.game.view(), &state.ui_settings)
+                    .iter()
+                    .rev()
+                {
                     if rect_intersect(x, y, &card_rect.rect) {
                         if let Some(size) = card_rect.stack_size {
                             match state.game.pick_up_stack(card_rect.address, size) {
                                 Ok(new_state) => {
                                     state.game =
                                         state.undo_stack.update(state.game.clone(), new_state);
-                                    state.view = state.game.view();
                                 }
                                 Err(MoveError::CannotPickUp { .. }) => {}
                                 Err(_) => unreachable!(),
@@ -261,7 +257,6 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                                 Ok(new_state) => {
                                     state.game =
                                         state.undo_stack.update(state.game.clone(), new_state);
-                                    state.view = state.game.view();
                                 }
                                 Err(MoveError::CannotPickUp { .. }) => {}
                                 Err(_) => unreachable!(),
@@ -281,7 +276,6 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                             Ok(new_state) => {
                                 did_something = true;
                                 state.game = state.undo_stack.update(state.game.clone(), new_state);
-                                state.view = state.game.view();
                             }
                             Err(MoveError::CannotPlace { .. }) => {}
                             Err(_) => unreachable!(),
@@ -290,7 +284,6 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                 }
                 if !did_something {
                     state.game = state.undo_stack.undo(state.game.clone());
-                    state.view = state.game.view();
                 }
             }
         }
@@ -300,17 +293,15 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
         } => match key {
             Keycode::Backspace => {
                 state.game = state.undo_stack.undo(state.game.clone());
-                state.view = state.game.view();
             }
             Keycode::Return => {
                 state.game = state.undo_stack.redo(state.game.clone());
-                state.view = state.game.view();
             }
             Keycode::C => {
                 if let Some(ctx) = &mut state.clipboard {
                     if let Err(e) = ctx.set_contents(state.seed.to_string()) {
                         state.status_text = Some((
-                            Instant::now() + state.ui_settings.status_display_secs,
+                            Instant::now() + state.ui_settings.timings().status_display_secs,
                             "Clipboard Error".to_string(),
                         ));
                         if !state.opt.quiet {
@@ -318,13 +309,13 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                         }
                     } else {
                         state.status_text = Some((
-                            Instant::now() + state.ui_settings.status_display_secs,
+                            Instant::now() + state.ui_settings.timings().status_display_secs,
                             "Copied!".to_string(),
                         ));
                     }
                 } else {
                     state.status_text = Some((
-                        Instant::now() + state.ui_settings.status_display_secs,
+                        Instant::now() + state.ui_settings.timings().status_display_secs,
                         "Clipboard Error".to_string(),
                     ));
                     if !state.opt.quiet {
@@ -335,7 +326,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
             Keycode::S => match save(state.seed, &state.game, &state.undo_stack) {
                 Ok(filename) => {
                     state.status_text = Some((
-                        Instant::now() + state.ui_settings.status_display_secs,
+                        Instant::now() + state.ui_settings.timings().status_display_secs,
                         format!("Saved to {:?}", filename),
                     ));
                     if !state.opt.quiet {
@@ -344,7 +335,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                 }
                 Err(e) => {
                     state.status_text = Some((
-                        Instant::now() + state.ui_settings.status_display_secs,
+                        Instant::now() + state.ui_settings.timings().status_display_secs,
                         "Save Error".to_string(),
                     ));
                     if !state.opt.quiet {
@@ -354,8 +345,9 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
             },
             Keycode::N => {
                 if state.new_game_timer == NewGameState::Ready {
-                    state.new_game_timer =
-                        NewGameState::Starting(Instant::now() + state.ui_settings.new_game_secs);
+                    state.new_game_timer = NewGameState::Starting(
+                        Instant::now() + state.ui_settings.timings().new_game_secs,
+                    );
                 }
             }
             _ => {}
@@ -378,7 +370,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                     .ui_settings
                     .update_proportions(width.try_into().unwrap(), height.try_into().unwrap())?;
                 state.status_text = Some((
-                    Instant::now() + state.ui_settings.window_size_display_secs,
+                    Instant::now() + state.ui_settings.timings().window_size_display_secs,
                     format!("window size: ({} x {})", width, height),
                 ));
             }
@@ -394,8 +386,7 @@ fn update(state: &mut State) -> Result<()> {
     if state.next_auto_move <= Instant::now() {
         if let Some(new_state) = state.game.auto_move_to_foundations() {
             state.game = state.undo_stack.sneak_update(state.game.clone(), new_state);
-            state.view = state.game.view();
-            state.next_auto_move = Instant::now() + state.ui_settings.auto_move_secs;
+            state.next_auto_move = Instant::now() + state.ui_settings.timings().auto_move_secs;
         }
     }
     if let NewGameState::Starting(time) = state.new_game_timer {
@@ -405,10 +396,9 @@ fn update(state: &mut State) -> Result<()> {
             state.seed = seed;
             state.game = Game::new_game(seed);
             state.undo_stack = GameUndoStack::new();
-            state.view = state.game.view();
             state.new_game_timer = NewGameState::Cooldown;
             state.status_text = None;
-            state.next_auto_move = Instant::now() + state.ui_settings.auto_move_secs;
+            state.next_auto_move = Instant::now() + state.ui_settings.timings().auto_move_secs;
             if !state.opt.quiet {
                 eprintln!("Started new game. Seed is {}", seed);
             }

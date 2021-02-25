@@ -14,6 +14,15 @@ mod test;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Game {
+    // unstable internal state of the game
+    state: State,
+    // api-stable state of the game
+    // pre-calculated, so that you can call view() multiple times and not copy data every time
+    view: GameView,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct State {
     columns: Vec<CardColumn>,
     foundations: Vec<Card>, // when empty, a foundation holds a card with rank 0
     free_cells: Vec<Option<Card>>,
@@ -21,9 +30,28 @@ pub struct Game {
     floating_stack: Option<Vec<Card>>,
 }
 
+impl Into<Game> for State {
+    fn into(self) -> Game {
+        let floating = if let Some(card) = self.floating {
+            Some(vec![card])
+        } else if let Some(cards) = self.floating_stack.clone() {
+            Some(cards)
+        } else {
+            None
+        };
+        let view = GameView {
+            columns: self.columns.clone(),
+            foundations: self.foundations.clone(),
+            free_cells: self.free_cells.clone(),
+            floating,
+        };
+        Game { state: self, view }
+    }
+}
+
 impl Game {
     fn empty() -> Self {
-        Game {
+        State {
             columns: Vec::new(),
             foundations: (0..4)
                 .map(|n: usize| Card::new(0, n.try_into().unwrap()))
@@ -32,11 +60,12 @@ impl Game {
             floating: None,
             floating_stack: None,
         }
+        .into()
     }
 
     // shuffle & create a new game
     pub fn new_game(seed: u64) -> Self {
-        let mut spread = Game::empty();
+        let mut spread = Game::empty().state;
         let mut deck = Vec::with_capacity(52);
         for &suit in &[Suit::Clubs, Suit::Diamonds, Suit::Spades, Suit::Hearts] {
             for rank in 1..=13 {
@@ -51,12 +80,12 @@ impl Game {
             deck = Vec::from(remainder);
         }
         spread.columns.push(deck);
-        spread
+        spread.into()
     }
 
     // pick up a card from a position
     pub fn pick_up_card(&self, address: CardAddress) -> Result<Self> {
-        if self.floating != None || self.floating_stack != None {
+        if self.state.floating != None || self.state.floating_stack != None {
             return Err(MoveError::CannotPickUp {
                 from: address,
                 reason: REASON_ALREADY_HOLDING.to_string(),
@@ -64,11 +93,11 @@ impl Game {
         }
         match address {
             CardAddress::Column(i) => {
-                let mut result = self.clone();
+                let mut result = self.state.clone();
                 if let Some(column) = &mut result.columns.get_mut(i) {
                     if let Some(card) = column.pop() {
                         result.floating = Some(card);
-                        Ok(result)
+                        Ok(result.into())
                     } else {
                         Err(MoveError::CannotPickUp {
                             from: address,
@@ -86,12 +115,12 @@ impl Game {
             }),
 
             CardAddress::FreeCell(i) => {
-                let mut result = self.clone();
+                let mut result = self.state.clone();
                 if let Some(free_cell) = result.free_cells.get_mut(i) {
                     if let Some(card) = free_cell.clone() {
                         *free_cell = None;
                         result.floating = Some(card);
-                        Ok(result)
+                        Ok(result.into())
                     } else {
                         Err(MoveError::CannotPickUp {
                             from: address,
@@ -108,7 +137,7 @@ impl Game {
     // try to pick up a stack of cards from a position
     pub fn pick_up_stack(&self, address: CardAddress, number_of_cards: usize) -> Result<Self> {
         if let CardAddress::Column(column_number) = address {
-            if self.floating != None || self.floating_stack != None {
+            if self.state.floating != None || self.state.floating_stack != None {
                 return Err(MoveError::CannotPickUp {
                     from: address,
                     reason: REASON_ALREADY_HOLDING.to_string(),
@@ -122,7 +151,7 @@ impl Game {
                 }),
                 1 => self.pick_up_card(address),
                 _ => {
-                    let mut result = self.clone();
+                    let mut result = self.state.clone();
                     if let Some(column) = &mut result.columns.get_mut(column_number) {
                         if number_of_cards <= column.len() {
                             if number_of_cards <= max_possible_stack_size {
@@ -138,7 +167,7 @@ impl Game {
                                 let floating_stack =
                                     column.split_off(column.len() - number_of_cards);
                                 result.floating_stack = Some(floating_stack);
-                                Ok(result)
+                                Ok(result.into())
                             } else {
                                 Err(MoveError::CannotPickUp {
                                     from: address,
@@ -166,7 +195,7 @@ impl Game {
 
     // place the held card at a position
     pub fn place(&self, address: CardAddress) -> Result<Self> {
-        let mut result = self.clone();
+        let mut result = self.state.clone();
         match address {
             CardAddress::Column(i) => {
                 if let Some(column) = &mut result.columns.get_mut(i) {
@@ -174,7 +203,7 @@ impl Game {
                         if column.is_empty() || card.stacks_on(column.last().unwrap()) {
                             column.push(card);
                             result.floating = None;
-                            Ok(result)
+                            Ok(result.into())
                         } else {
                             Err(MoveError::CannotPlace {
                                 to: address,
@@ -187,7 +216,7 @@ impl Game {
                         {
                             column.append(cards);
                             result.floating_stack = None;
-                            Ok(result)
+                            Ok(result.into())
                         } else {
                             Err(MoveError::CannotPlace {
                                 to: address,
@@ -211,7 +240,7 @@ impl Game {
                         if card.fits_on_foundation(foundation) {
                             *foundation = card;
                             result.floating = None;
-                            Ok(result)
+                            Ok(result.into())
                         } else {
                             Err(MoveError::CannotPlace {
                                 to: CardAddress::Foundation(s),
@@ -235,7 +264,7 @@ impl Game {
                         if let Some(card) = result.floating {
                             *free_cell = Some(card);
                             result.floating = None;
-                            Ok(result)
+                            Ok(result.into())
                         } else {
                             Err(MoveError::CannotPlace {
                                 to: CardAddress::FreeCell(i),
@@ -256,28 +285,17 @@ impl Game {
     }
 
     // get a look at the state of the board
-    pub fn view(&self) -> GameView {
-        let floating = if let Some(card) = self.floating {
-            Some(vec![card])
-        } else if let Some(cards) = self.floating_stack.clone() {
-            Some(cards)
-        } else {
-            None
-        };
-        GameView {
-            columns: self.columns.clone(),
-            foundations: self.foundations.clone(),
-            free_cells: self.free_cells.clone(),
-            floating,
-        }
+    pub fn view(&self) -> &GameView {
+        &self.view
     }
 
     pub fn has_floating(&self) -> bool {
-        self.floating.is_some() || self.floating_stack.is_some()
+        self.state.floating.is_some() || self.state.floating_stack.is_some()
     }
 
     fn max_stack_size(&self) -> usize {
         let num_empty_free_cells: usize = self
+            .state
             .free_cells
             .iter()
             .map(|&c| if None == c { 1 } else { 0 })
@@ -287,11 +305,11 @@ impl Game {
 
     // move a card to its foundation if possible. returns true if you moved any
     pub fn auto_move_to_foundations(&self) -> Option<Self> {
-        if self.floating != None || self.floating_stack != None {
+        if self.state.floating != None || self.state.floating_stack != None {
             return None;
         }
-        let mut result = self.clone();
-        for (index, column_card) in result
+        for (index, column_card) in self
+            .state
             .columns
             .iter()
             .map(|c| match c.last() {
@@ -301,6 +319,7 @@ impl Game {
             .enumerate()
             .collect::<Vec<(usize, Option<Card>)>>()
         {
+            let mut result = self.clone();
             if let Some(card) = column_card {
                 if result.can_auto_move(card) {
                     result = result.pick_up_card(CardAddress::Column(index)).unwrap();
@@ -313,21 +332,24 @@ impl Game {
     }
 
     fn can_auto_move(&self, card: Card) -> bool {
-        if self.foundations[usize::from(card.suit)].rank != card.rank - 1 {
+        if self.state.foundations[usize::from(card.suit)].rank != card.rank - 1 {
             return false;
         }
         match card.suit.colour() {
             Colour::Red => {
-                let clubs = self.foundations[usize::from(Suit::Clubs)].rank >= card.rank - 1
+                let clubs = self.state.foundations[usize::from(Suit::Clubs)].rank >= card.rank - 1
                     || self.can_auto_move(Card::new(card.rank - 1, Suit::Clubs));
-                let spades = self.foundations[usize::from(Suit::Spades)].rank >= card.rank - 1
+                let spades = self.state.foundations[usize::from(Suit::Spades)].rank
+                    >= card.rank - 1
                     || self.can_auto_move(Card::new(card.rank - 1, Suit::Spades));
                 clubs && spades
             }
             Colour::Black => {
-                let diamonds = self.foundations[usize::from(Suit::Diamonds)].rank >= card.rank - 1
+                let diamonds = self.state.foundations[usize::from(Suit::Diamonds)].rank
+                    >= card.rank - 1
                     || self.can_auto_move(Card::new(card.rank - 1, Suit::Diamonds));
-                let hearts = self.foundations[usize::from(Suit::Hearts)].rank >= card.rank - 1
+                let hearts = self.state.foundations[usize::from(Suit::Hearts)].rank
+                    >= card.rank - 1
                     || self.can_auto_move(Card::new(card.rank - 1, Suit::Hearts));
                 hearts && diamonds
             }
@@ -336,12 +358,12 @@ impl Game {
 }
 
 pub fn _game_from_columns(columns: Vec<Vec<Card>>) -> Game {
-    let mut game = Game::empty();
+    let mut game = Game::empty().state;
     game.columns = columns;
-    game
+    game.into()
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct GameView {
     pub columns: Vec<Vec<Card>>,
     pub foundations: Vec<Card>,

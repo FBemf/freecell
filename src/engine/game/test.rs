@@ -2,8 +2,7 @@ use super::*;
 
 #[test]
 fn test_moves() {
-    let mut spread = Game::empty();
-    spread.columns = vec![
+    let mut spread = _game_from_columns(vec![
         vec![
             Card::new(6, Suit::Hearts),
             Card::new(5, Suit::Spades),
@@ -23,7 +22,7 @@ fn test_moves() {
             Card::new(6, Suit::Diamonds),
             Card::new(5, Suit::Clubs),
         ],
-    ];
+    ]);
 
     // move 1-4 onto second column
     assert_eq!(
@@ -157,31 +156,30 @@ fn test_moves() {
 
 #[test]
 fn auto_move() {
-    let mut game = Game::empty();
-    game.columns.push(
+    let mut game = _game_from_columns(vec![
         (1..=5)
             .rev()
             .map(|n| Card::new(n, Suit::Spades))
             .collect::<Vec<Card>>(),
-    );
-    game.columns.push(vec![
-        Card::new(3, Suit::Clubs),
-        Card::new(4, Suit::Clubs),
-        Card::new(2, Suit::Clubs),
-        Card::new(1, Suit::Clubs),
-    ]);
-    game.columns.push(vec![
-        Card::new(3, Suit::Diamonds),
-        Card::new(2, Suit::Diamonds),
-        Card::new(1, Suit::Diamonds),
-        Card::new(2, Suit::Hearts),
-        Card::new(1, Suit::Hearts),
+        vec![
+            Card::new(3, Suit::Clubs),
+            Card::new(4, Suit::Clubs),
+            Card::new(2, Suit::Clubs),
+            Card::new(1, Suit::Clubs),
+        ],
+        vec![
+            Card::new(3, Suit::Diamonds),
+            Card::new(2, Suit::Diamonds),
+            Card::new(1, Suit::Diamonds),
+            Card::new(2, Suit::Hearts),
+            Card::new(1, Suit::Hearts),
+        ],
     ]);
     while let Some(new_state) = game.auto_move_to_foundations() {
         game = new_state;
     }
     assert_eq!(
-        game.foundations,
+        game.view().foundations,
         vec![
             Card::new(2, Suit::Clubs,),
             Card::new(3, Suit::Diamonds,),
@@ -204,13 +202,15 @@ fn test_rng() {
 fn test_won() {
     let mut game = Game::empty();
     assert!(!game.view().is_won());
-    game.foundations = vec![
+    game.state.foundations = vec![
         Card::new(13, Suit::Clubs),
         Card::new(13, Suit::Diamonds),
         Card::new(13, Suit::Hearts),
         Card::new(12, Suit::Spades),
     ];
+    game = game.state.into(); // update view
     assert!(!game.view().is_won());
-    game.foundations[3] = Card::new(13, Suit::Spades);
+    game.state.foundations[3] = Card::new(13, Suit::Spades);
+    game = game.state.into(); // update view
     assert!(game.view().is_won());
 }
