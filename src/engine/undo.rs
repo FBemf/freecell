@@ -130,12 +130,12 @@ impl fmt::Display for GameUndoStack {
 #[cfg(test)]
 mod test {
     use super::super::card::*;
-    use super::super::game::*;
+    use super::super::game::inspect::*;
     use super::*;
 
     #[test]
     fn undo_redo() {
-        let mut game = _game_from_columns(vec![
+        let mut game = game_from_columns(vec![
             vec![Card::new(2, Suit::Diamonds), Card::new(1, Suit::Clubs)],
             Vec::new(),
         ]);
@@ -159,7 +159,7 @@ mod test {
 
     #[test]
     fn manual_undo() {
-        let mut game = _game_from_columns(vec![
+        let mut game = game_from_columns(vec![
             vec![Card::new(2, Suit::Clubs), Card::new(1, Suit::Diamonds)],
             Vec::new(),
             Vec::new(),
@@ -199,7 +199,7 @@ mod test {
 
     #[test]
     fn manual_redo() {
-        let mut game = _game_from_columns(vec![
+        let mut game = game_from_columns(vec![
             vec![Card::new(1, Suit::Clubs), Card::new(2, Suit::Diamonds)],
             Vec::new(),
         ]);
@@ -236,7 +236,7 @@ mod test {
 
     #[test]
     fn nop_skipping() {
-        let mut game = _game_from_columns(vec![
+        let mut game = game_from_columns(vec![
             vec![Card::new(1, Suit::Clubs), Card::new(2, Suit::Diamonds)],
             Vec::new(),
         ]);
@@ -270,7 +270,7 @@ mod test {
 
     #[test]
     fn sneak_skipping() {
-        let mut game = _game_from_columns(vec![
+        let mut game = game_from_columns(vec![
             vec![Card::new(1, Suit::Clubs), Card::new(2, Suit::Diamonds)],
             Vec::new(),
         ]);
@@ -291,7 +291,7 @@ mod test {
 
     #[test]
     fn no_ops() {
-        let mut game = _game_from_columns(vec![
+        let mut game = game_from_columns(vec![
             vec![Card::new(2, Suit::Clubs), Card::new(1, Suit::Diamonds)],
             Vec::new(),
             Vec::new(),

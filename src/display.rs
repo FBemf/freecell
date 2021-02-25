@@ -494,6 +494,8 @@ fn draw_card<'a>(
     }
 }
 
+// draw big text in the middle of the screen
+// if background is unset, it's transparent
 fn draw_text_centred<'a>(
     ui_settings: &UISettings,
     canvas: &'a mut Canvas<Surface>,
@@ -513,6 +515,8 @@ fn draw_text_centred<'a>(
     Ok(())
 }
 
+// draw text at an arbitrary place.
+// if background is unset, it's transparent
 fn draw_text<'a>(
     canvas: &'a mut Canvas<Surface>,
     font: &Font,

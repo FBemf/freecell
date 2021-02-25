@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_moves() {
-    let mut spread = _game_from_columns(vec![
+    let mut spread = inspect::game_from_columns(vec![
         vec![
             Card::new(6, Suit::Hearts),
             Card::new(5, Suit::Spades),
@@ -156,7 +156,7 @@ fn test_moves() {
 
 #[test]
 fn auto_move() {
-    let mut game = _game_from_columns(vec![
+    let mut game = inspect::game_from_columns(vec![
         (1..=5)
             .rev()
             .map(|n| Card::new(n, Suit::Spades))

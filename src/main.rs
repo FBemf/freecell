@@ -1,7 +1,5 @@
 use std::convert::TryInto;
 use std::env;
-use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -323,26 +321,34 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                     }
                 }
             }
-            Keycode::S => match save(state.seed, &state.game, &state.undo_stack) {
-                Ok(filename) => {
-                    state.status_text = Some((
-                        Instant::now() + state.ui_settings.timings().status_display_secs,
-                        format!("Saved to {:?}", filename),
-                    ));
-                    if !state.opt.quiet {
-                        eprintln!("Saved to {:?}", filename);
+            Keycode::S => {
+                match save(
+                    state.seed,
+                    &state.game,
+                    &state.undo_stack,
+                    env::current_dir()?,
+                    "freecell_save.",
+                ) {
+                    Ok(filename) => {
+                        state.status_text = Some((
+                            Instant::now() + state.ui_settings.timings().status_display_secs,
+                            format!("Saved to {:?}", filename),
+                        ));
+                        if !state.opt.quiet {
+                            eprintln!("Saved to {:?}", filename);
+                        }
+                    }
+                    Err(e) => {
+                        state.status_text = Some((
+                            Instant::now() + state.ui_settings.timings().status_display_secs,
+                            "Save Error".to_string(),
+                        ));
+                        if !state.opt.quiet {
+                            eprintln!("Error saving: {}", e);
+                        }
                     }
                 }
-                Err(e) => {
-                    state.status_text = Some((
-                        Instant::now() + state.ui_settings.timings().status_display_secs,
-                        "Save Error".to_string(),
-                    ));
-                    if !state.opt.quiet {
-                        eprintln!("Error saving: {}", e);
-                    }
-                }
-            },
+            }
             Keycode::N => {
                 if state.new_game_timer == NewGameState::Ready {
                     state.new_game_timer = NewGameState::Starting(
@@ -405,28 +411,4 @@ fn update(state: &mut State) -> Result<()> {
         }
     }
     Ok(())
-}
-
-// load game
-pub fn load(filename: &PathBuf) -> Result<(u64, Game, GameUndoStack)> {
-    let save = fs::read_to_string(filename)?;
-    let result: (u64, Game, GameUndoStack) = serde_json::from_str(&save)?;
-    Ok(result)
-}
-
-// save game
-pub fn save(seed: u64, game: &Game, undo: &GameUndoStack) -> Result<PathBuf> {
-    let save = serde_json::to_string(&(seed, game, undo))?;
-    let dir = env::current_dir()?;
-    let name = "freecell_save.".to_string();
-    for n in 0.. {
-        let mut filename = dir.clone();
-        filename.push(name.clone() + &n.to_string());
-        if !filename.exists() {
-            let mut file = fs::File::create(filename.clone())?;
-            file.write_all(save.as_bytes())?;
-            return Ok(filename);
-        }
-    }
-    unreachable!();
 }

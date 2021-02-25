@@ -357,12 +357,6 @@ impl Game {
     }
 }
 
-pub fn _game_from_columns(columns: Vec<Vec<Card>>) -> Game {
-    let mut game = Game::empty().state;
-    game.columns = columns;
-    game.into()
-}
-
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct GameView {
     pub columns: Vec<Vec<Card>>,
@@ -419,5 +413,28 @@ impl fmt::Display for GameView {
             }
         }
         Ok(())
+    }
+}
+
+// these things are used by other modules in game, but are not exported by game
+pub mod inspect {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct StateContainer(State);
+
+    pub fn game_get_state(game: &Game) -> StateContainer {
+        StateContainer(game.state.clone())
+    }
+
+    pub fn game_from_state(state: StateContainer) -> Game {
+        state.0.into()
+    }
+
+    #[cfg(test)]
+    pub fn game_from_columns(columns: Vec<Vec<Card>>) -> Game {
+        let mut game = Game::empty().state;
+        game.columns = columns;
+        game.into()
     }
 }
