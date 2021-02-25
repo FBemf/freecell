@@ -12,8 +12,8 @@ use rand::prelude::*;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseState;
-use sdl2::rect::Rect;
 use sdl2::render::Canvas;
+use sdl2::ttf::Sdl2TtfContext;
 use sdl2::video::Window;
 use sdl2::EventPump;
 use structopt::StructOpt;
@@ -59,12 +59,12 @@ enum NewGameState {
     Ready,
 }
 
-struct State {
+struct State<'a, 'b: 'a> {
     opt: Opt,
     game: Game,
     view: GameView,
     undo_stack: GameUndoStack,
-    ui_settings: UISettings,
+    ui_settings: UISettings<'a, 'b>,
     clipboard: Option<ClipboardContext>,
     canvas: Canvas<Window>,
     // text to display in corner & the time when it'll disappear
@@ -79,6 +79,7 @@ struct State {
 fn main() -> Result<()> {
     let cli_options = Opt::from_args();
 
+    let ttf_context = sdl2::ttf::init()?;
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
@@ -88,7 +89,7 @@ fn main() -> Result<()> {
         .build()
         .context("building window")?;
     let canvas = window.into_canvas().build().context("building canvas")?;
-    let mut state = initialize_state(cli_options, canvas)?;
+    let mut state = initialize_state(cli_options, canvas, &ttf_context)?;
 
     let mut event_pump = sdl_context
         .event_pump()
@@ -110,14 +111,22 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
+fn initialize_state<'a>(
+    opt: Opt,
+    mut canvas: Canvas<Window>,
+    ttf_context: &Sdl2TtfContext,
+) -> Result<State> {
     let clipboard: Option<ClipboardContext> = if let Ok(c) = ClipboardProvider::new() {
         Some(c)
     } else {
         None
     };
 
-    let ui_settings = UISettings::new(canvas.viewport().width(), canvas.viewport().height());
+    let ui_settings = UISettings::new(
+        canvas.viewport().width(),
+        canvas.viewport().height(),
+        ttf_context,
+    )?;
 
     let (seed, game, undo_stack) = if let Some(path) = &opt.load {
         if !opt.quiet {
@@ -141,7 +150,7 @@ fn initialize_state(opt: Opt, mut canvas: Canvas<Window>) -> Result<State> {
 
     let view = game.view();
 
-    canvas.set_draw_color(ui_settings.background);
+    canvas.set_draw_color(ui_settings.background_colour());
     canvas.clear();
     canvas.present();
 
@@ -184,18 +193,7 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
     } else {
         format!("seed: {}", state.seed)
     };
-    let status_rect = Rect::new(
-        0,
-        0,
-        state.ui_settings.canvas_width,
-        state.ui_settings.canvas_height,
-    );
-    draw_text_rect(
-        &mut frame,
-        &state.ui_settings.status_text,
-        status_rect,
-        &status_text,
-    )?;
+    draw_status_text(&state.ui_settings, &mut frame, &status_text)?;
 
     let mouse = MouseState::new(&event_pump);
     draw_game(
@@ -213,10 +211,9 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
                 let proportion_elapsed: f64 = (state.ui_settings.new_game_secs.as_secs_f64()
                     - time_remaining)
                     / state.ui_settings.new_game_secs.as_secs_f64();
-                draw_text_centred(
-                    &mut frame,
+                draw_reset_text(
                     &state.ui_settings,
-                    &state.ui_settings.restart_text,
+                    &mut frame,
                     &format!(
                         "Shuffling{}",
                         ".".repeat((6.0 * proportion_elapsed).floor() as usize)
@@ -225,12 +222,7 @@ fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
             }
         }
     } else if state.view.is_won() {
-        draw_text_centred(
-            &mut frame,
-            &state.ui_settings,
-            &state.ui_settings.victory_text,
-            "You Win!",
-        )?;
+        draw_victory_text(&state.ui_settings, &mut frame, "You Win!")?;
     }
 
     let texture_creator = state.canvas.texture_creator();
@@ -384,7 +376,7 @@ fn handle_event(event: Event, state: &mut State) -> Result<bool> {
             WindowEvent::Resized(width, height) => {
                 state
                     .ui_settings
-                    .update_proportions(width.try_into().unwrap(), height.try_into().unwrap());
+                    .update_proportions(width.try_into().unwrap(), height.try_into().unwrap())?;
                 state.status_text = Some((
                     Instant::now() + state.ui_settings.window_size_display_secs,
                     format!("window size: ({} x {})", width, height),
