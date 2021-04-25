@@ -61,7 +61,7 @@ pub struct State<'a, 'b: 'a> {
     opt: Opt,
     game: Game,
     undo_stack: GameUndoStack,
-    ui_settings: UISettings<'a, 'b>,
+    ui_settings: UiSettings<'a, 'b>,
     clipboard: Option<ClipboardContext>,
     canvas: Canvas<Window>,
     seed: u64,
@@ -100,7 +100,7 @@ fn main() -> Result<()> {
 
         // Update canvas & state
         draw_canvas(&mut state, &event_pump)?;
-        update(&mut state)?;
+        update(&mut state);
 
         // Wait one sixtieth of a second
         sleep(Duration::new(0, 1_000_000_000u32 / 60));
@@ -110,7 +110,7 @@ fn main() -> Result<()> {
 }
 
 // Set up the struct which holds the state of the game
-fn initialize_state<'a>(
+fn initialize_state(
     opt: Opt,
     canvas: Canvas<Window>,
     ttf_context: &Sdl2TtfContext,
@@ -123,7 +123,7 @@ fn initialize_state<'a>(
     };
 
     // Set up the UI
-    let ui_settings = UISettings::new(
+    let ui_settings = UiSettings::new(
         canvas.viewport().width(),
         canvas.viewport().height(),
         ttf_context,
@@ -135,7 +135,7 @@ fn initialize_state<'a>(
     // Initialize the game state, either from a random seed or by loading a save file
     let (seed, game, undo_stack) = if let Some(path) = &opt.load {
         if !opt.quiet {
-            if let Some(_) = opt.seed {
+            if opt.seed.is_some() {
                 eprintln!("Ignoring seed in favour of loading from file");
             }
             eprintln!("Loading from {:?}", path);
@@ -166,7 +166,7 @@ fn initialize_state<'a>(
     })
 }
 
-fn update(state: &mut State) -> Result<()> {
+fn update(state: &mut State) {
     // If we're not still on auto-move cooldown, try auto-moving cards to the foundations
     if state.interface_state.next_auto_move <= Instant::now() {
         if let Some(new_state) = state.game.auto_move_to_foundations() {
@@ -194,5 +194,4 @@ fn update(state: &mut State) -> Result<()> {
             }
         }
     }
-    Ok(())
 }

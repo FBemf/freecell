@@ -30,24 +30,24 @@ struct State {
     floating_stack: Option<Vec<Card>>,
 }
 
-impl Into<Game> for State {
+impl From<State> for Game {
     // we handle only States internally, and we return Games with state.into().
     // this way, we always correctly calculate the new view right when we return
-    fn into(self) -> Game {
-        let floating = if let Some(card) = self.floating {
+    fn from(state: State) -> Self {
+        let floating = if let Some(card) = state.floating {
             Some(vec![card])
-        } else if let Some(cards) = self.floating_stack.clone() {
+        } else if let Some(cards) = state.floating_stack.clone() {
             Some(cards)
         } else {
             None
         };
         let view = GameView {
-            columns: self.columns.clone(),
-            foundations: self.foundations.clone(),
-            free_cells: self.free_cells.clone(),
+            columns: state.columns.clone(),
+            foundations: state.foundations.clone(),
+            free_cells: state.free_cells.clone(),
             floating,
         };
-        Game { state: self, view }
+        Game { state, view }
     }
 }
 
@@ -121,7 +121,7 @@ impl Game {
             CardAddress::FreeCell(i) => {
                 let mut result = self.state.clone();
                 if let Some(free_cell) = result.free_cells.get_mut(i) {
-                    if let Some(card) = free_cell.clone() {
+                    if let Some(card) = *free_cell {
                         *free_cell = None;
                         result.floating = Some(card);
                         Ok(result.into())
@@ -329,7 +329,7 @@ impl Game {
             .columns
             .iter()
             .map(|c| match c.last() {
-                Some(&v) => Some(v.clone()),
+                Some(&v) => Some(v),
                 None => None,
             })
             .enumerate()
@@ -344,7 +344,7 @@ impl Game {
                 }
             }
         }
-        return None;
+        None
     }
 
     // true if a card can be auto-moved, i.e. it can move to a foundation and nothing else can stack on it
@@ -408,9 +408,9 @@ impl fmt::Display for GameView {
         for foundation in &self.foundations {
             write!(f, "{} ", foundation)?;
         }
-        write!(f, "\n")?;
+        writeln!(f)?;
         for row in 0.. {
-            write!(f, "\n")?;
+            writeln!(f)?;
             let mut printed_something = false;
             let mut print_string = String::new();
             for column in &self.columns {
@@ -418,7 +418,7 @@ impl fmt::Display for GameView {
                     print_string += &format!("{} ", card).as_str();
                     printed_something = true;
                 } else {
-                    print_string += &format!("    ").as_str();
+                    print_string += "    ";
                 }
             }
             if printed_something {

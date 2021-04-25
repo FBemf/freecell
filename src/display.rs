@@ -285,7 +285,7 @@ impl Timings {
 
 // Holds all of the configuration info about how the game should
 // be displayed. Fonts, colours, coordinates,
-pub struct UISettings<'a, 'b> {
+pub struct UiSettings<'a, 'b> {
     columns: u32,
     dimensions: Dimensions,
     colours: Colours,
@@ -293,7 +293,7 @@ pub struct UISettings<'a, 'b> {
     fonts: Fonts<'a, 'b>,
 }
 
-impl<'a, 'b: 'a> UISettings<'a, 'b> {
+impl<'a, 'b: 'a> UiSettings<'a, 'b> {
     pub fn new(
         canvas_width: u32,
         canvas_height: u32,
@@ -305,7 +305,7 @@ impl<'a, 'b: 'a> UISettings<'a, 'b> {
         let colours = Colours::default();
         let timings = Timings::default();
 
-        Ok(UISettings {
+        Ok(UiSettings {
             columns,
             dimensions,
             timings,
@@ -330,7 +330,7 @@ impl<'a, 'b: 'a> UISettings<'a, 'b> {
 // get all the rects representing all the cards.
 // they're listed in the order they should be drawn, so that if card A
 // should be drawn over card B, card A comes after card B
-pub fn get_card_rects(view: &GameView, settings: &UISettings) -> Vec<CardRect> {
+pub fn get_card_rects(view: &GameView, settings: &UiSettings) -> Vec<CardRect> {
     let mut board_rects = Vec::with_capacity(52);
     for (n, maybe_card) in view.free_cells.iter().enumerate() {
         if let Some(card) = maybe_card {
@@ -370,7 +370,7 @@ pub fn get_card_rects(view: &GameView, settings: &UISettings) -> Vec<CardRect> {
 // get rects representing the areas you can place held cards.
 // by checking which rect the mouse intersects with, you can find the address
 // the player is placing the card at
-pub fn get_placement_zones(settings: &UISettings) -> Vec<(CardAddress, Rect)> {
+pub fn get_placement_zones(settings: &UiSettings) -> Vec<(CardAddress, Rect)> {
     let mut zones = Vec::with_capacity(16);
     for n in 0..4 {
         let card = settings.dimensions.get_free_cell(n.try_into().unwrap());
@@ -410,7 +410,7 @@ pub fn get_placement_zones(settings: &UISettings) -> Vec<(CardAddress, Rect)> {
 // should be drawn over card B, card A comes after card B
 pub fn get_floating_rects(
     view: &GameView,
-    settings: &UISettings,
+    settings: &UiSettings,
     mouse_x: i32,
     mouse_y: i32,
 ) -> Vec<(Card, Rect)> {
@@ -428,7 +428,7 @@ pub fn get_floating_rects(
     floating_rects
 }
 
-pub fn draw_background(canvas: &mut Canvas<sdl2::video::Window>, settings: &UISettings) {
+pub fn draw_background(canvas: &mut Canvas<sdl2::video::Window>, settings: &UiSettings) {
     let old_colour = canvas.draw_color();
     canvas.set_draw_color(settings.colours.background);
     canvas.clear();
@@ -439,7 +439,7 @@ pub fn draw_background(canvas: &mut Canvas<sdl2::video::Window>, settings: &UISe
 pub fn draw_game<'a>(
     canvas: &mut Canvas<Surface<'a>>,
     view: &GameView,
-    settings: &UISettings,
+    settings: &UiSettings,
     mouse: (i32, i32),
 ) -> Result<()> {
     let old_colour = canvas.draw_color();
@@ -472,7 +472,7 @@ pub fn draw_game<'a>(
 // draws a card to the screen
 fn draw_card<'a>(
     canvas: &mut Canvas<Surface<'a>>,
-    settings: &UISettings,
+    settings: &UiSettings,
     card: Card,
     rect: Rect,
 ) -> Result<()> {
@@ -511,7 +511,7 @@ fn draw_card<'a>(
 // draw big text in the middle of the screen.
 // if background is unset, it's transparent (that leads to artifacts in the anti-aliasing tho)
 fn draw_text_centred<'a>(
-    ui_settings: &UISettings,
+    ui_settings: &UiSettings,
     canvas: &'a mut Canvas<Surface>,
     font: &Font,
     colour: Color,
@@ -569,7 +569,7 @@ fn create_text_surface(
 
 // Draw text in the middle of the window in the "victory" style
 pub fn draw_victory_text<'a>(
-    ui_settings: &UISettings,
+    ui_settings: &UiSettings,
     canvas: &'a mut Canvas<Surface>,
     text: &str,
 ) -> Result<()> {
@@ -585,7 +585,7 @@ pub fn draw_victory_text<'a>(
 
 // Draw text in the middle of the window in the "reset" style
 pub fn draw_reset_text<'a>(
-    ui_settings: &UISettings,
+    ui_settings: &UiSettings,
     canvas: &'a mut Canvas<Surface>,
     text: &str,
 ) -> Result<()> {
@@ -601,7 +601,7 @@ pub fn draw_reset_text<'a>(
 
 // Draw text in the corner of the window, where the status text goes
 pub fn draw_status_text<'a>(
-    ui_settings: &UISettings,
+    ui_settings: &UiSettings,
     canvas: &'a mut Canvas<Surface>,
     text: &str,
 ) -> Result<()> {

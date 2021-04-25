@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
@@ -8,7 +8,7 @@ use super::game::inspect::*;
 use super::*;
 
 // load game
-pub fn load(filename: &PathBuf) -> Result<(u64, Game, GameUndoStack)> {
+pub fn load(filename: &Path) -> Result<(u64, Game, GameUndoStack)> {
     let save = fs::read_to_string(filename)?;
     let (seed, state, undo): (u64, StateContainer, GameUndoStack) = serde_json::from_str(&save)?;
     Ok((seed, game_from_state(state), undo))

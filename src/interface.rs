@@ -21,7 +21,7 @@ pub struct InterfaceState {
 }
 
 impl InterfaceState {
-    pub fn new(ui_settings: &UISettings) -> Self {
+    pub fn new(ui_settings: &UiSettings) -> Self {
         // timeout until an automatic move can be performed
         let next_auto_move = Instant::now() + ui_settings.timings().auto_move_secs;
         // status text to draw to screen & time when it will fade
@@ -215,23 +215,21 @@ pub fn handle_event(event: Event, state: &mut State) -> Result<bool> {
         },
 
         Event::Window {
-            win_event: event, ..
-        } => match event {
-            WindowEvent::Resized(width, height) => {
-                state
-                    .ui_settings
-                    .update_proportions(width.try_into().unwrap(), height.try_into().unwrap())?;
-                state.interface_state.status_text = Some((
-                    Instant::now() + state.ui_settings.timings().window_size_display_secs,
-                    format!("window size: ({} x {})", width, height),
-                ));
-            }
-            _ => {}
-        },
+            win_event: WindowEvent::Resized(width, height),
+            ..
+        } => {
+            state
+                .ui_settings
+                .update_proportions(width.try_into().unwrap(), height.try_into().unwrap())?;
+            state.interface_state.status_text = Some((
+                Instant::now() + state.ui_settings.timings().window_size_display_secs,
+                format!("window size: ({} x {})", width, height),
+            ));
+        }
 
         _ => {}
     }
-    return Ok(false);
+    Ok(false)
 }
 
 pub fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {

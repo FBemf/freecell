@@ -52,10 +52,8 @@ impl GameUndoStack {
         if let Some(undone_state) = self.undo_history.last() {
             if &new_state == undone_state {
                 self.undo_history.pop();
-            } else {
-                if !new_state.has_floating() {
-                    self.undo_history = Vec::new();
-                }
+            } else if !new_state.has_floating() {
+                self.undo_history = Vec::new();
             }
         }
 
@@ -103,7 +101,7 @@ impl GameUndoStack {
             if !state.has_floating() {
                 self.history.push((false, state));
             }
-            return undone_state;
+            undone_state
         } else {
             state
         }
