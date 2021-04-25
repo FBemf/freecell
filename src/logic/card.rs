@@ -12,10 +12,12 @@ pub struct Card {
 }
 
 impl Card {
+    // true if this card can legally stack on top of "base" on the tableau
     pub fn stacks_on(&self, base: &Card) -> bool {
         self.suit.colour() != base.suit.colour() && base.rank == self.rank + 1
     }
 
+    // true if this card can legally go on the foundation with the card "base" on top
     pub fn fits_on_foundation(&self, base: &Card) -> bool {
         self.suit == base.suit && self.rank == base.rank + 1
     }

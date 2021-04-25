@@ -31,6 +31,8 @@ struct State {
 }
 
 impl Into<Game> for State {
+    // we handle only States internally, and we return Games with state.into().
+    // this way, we always correctly calculate the new view right when we return
     fn into(self) -> Game {
         let floating = if let Some(card) = self.floating {
             Some(vec![card])
@@ -85,6 +87,7 @@ impl Game {
 
     // pick up a card from a position
     pub fn pick_up_card(&self, address: CardAddress) -> Result<Self> {
+        // can't pick up a cards if you're already holding cards
         if self.state.floating != None || self.state.floating_stack != None {
             return Err(MoveError::CannotPickUp {
                 from: address,
@@ -92,6 +95,7 @@ impl Game {
             });
         }
         match address {
+            // Pick up one card from a column
             CardAddress::Column(i) => {
                 let mut result = self.state.clone();
                 if let Some(column) = &mut result.columns.get_mut(i) {
@@ -108,12 +112,12 @@ impl Game {
                     Err(MoveError::IllegalAddress { address })
                 }
             }
-
+            // it's illegal to pick up from a foundation
             CardAddress::Foundation(s) => Err(MoveError::CannotPickUp {
                 from: CardAddress::Foundation(s),
                 reason: REASON_MOVE_FOUNDATION.to_string(),
             }),
-
+            // pick up a card from a free cell
             CardAddress::FreeCell(i) => {
                 let mut result = self.state.clone();
                 if let Some(free_cell) = result.free_cells.get_mut(i) {
@@ -137,6 +141,7 @@ impl Game {
     // try to pick up a stack of cards from a position
     pub fn pick_up_stack(&self, address: CardAddress, number_of_cards: usize) -> Result<Self> {
         if let CardAddress::Column(column_number) = address {
+            // can't pick up a cards if you're already holding cards
             if self.state.floating != None || self.state.floating_stack != None {
                 return Err(MoveError::CannotPickUp {
                     from: address,
@@ -152,9 +157,11 @@ impl Game {
                 1 => self.pick_up_card(address),
                 _ => {
                     let mut result = self.state.clone();
+                    // ensure we can legally pick up this many cards
                     if let Some(column) = &mut result.columns.get_mut(column_number) {
                         if number_of_cards <= column.len() {
                             if number_of_cards <= max_possible_stack_size {
+                                // check if the cards in the column are legally allowed to stack
                                 let it = column.iter().rev();
                                 for pair in it.clone().take(number_of_cards - 1).zip(it.skip(1)) {
                                     if !pair.0.stacks_on(pair.1) {
@@ -164,6 +171,7 @@ impl Game {
                                         });
                                     }
                                 }
+                                // actually pick up the cards
                                 let floating_stack =
                                     column.split_off(column.len() - number_of_cards);
                                 result.floating_stack = Some(floating_stack);
@@ -200,6 +208,7 @@ impl Game {
             CardAddress::Column(i) => {
                 if let Some(column) = &mut result.columns.get_mut(i) {
                     if let Some(card) = result.floating {
+                        // try to place a single card onto a column
                         if column.is_empty() || card.stacks_on(column.last().unwrap()) {
                             column.push(card);
                             result.floating = None;
@@ -211,6 +220,7 @@ impl Game {
                             })
                         }
                     } else if let Some(cards) = &mut result.floating_stack {
+                        // try to place a stack of cards onto a column
                         if column.is_empty()
                             || cards.first().unwrap().stacks_on(column.last().unwrap())
                         {
@@ -235,6 +245,7 @@ impl Game {
             }
 
             CardAddress::Foundation(s) => {
+                // try to move a card to a foundation
                 if let Some(foundation) = result.foundations.get_mut(usize::from(s)) {
                     if let Some(card) = result.floating {
                         if card.fits_on_foundation(foundation) {
@@ -259,6 +270,7 @@ impl Game {
             }
 
             CardAddress::FreeCell(i) => {
+                // try to move a card to a free cell
                 if let Some(free_cell) = result.free_cells.get_mut(i) {
                     if *free_cell == None {
                         if let Some(card) = result.floating {
@@ -289,10 +301,14 @@ impl Game {
         &self.view
     }
 
+    // true if the player is holding cards
     pub fn has_floating(&self) -> bool {
         self.state.floating.is_some() || self.state.floating_stack.is_some()
     }
 
+    // find the max number of cards the player can pick up as a stack.
+    // not strictly the max cards the player can move at once, but the max
+    // number they can pick up at once without restricting where they can place them.
     fn max_stack_size(&self) -> usize {
         let num_empty_free_cells: usize = self
             .state
@@ -303,7 +319,7 @@ impl Game {
         1 + num_empty_free_cells
     }
 
-    // move a card to its foundation if possible. returns true if you moved any
+    // move one arbitrary card to a foundation, if possible. returns true if it moved a card
     pub fn auto_move_to_foundations(&self) -> Option<Self> {
         if self.state.floating != None || self.state.floating_stack != None {
             return None;
@@ -331,23 +347,28 @@ impl Game {
         return None;
     }
 
+    // true if a card can be auto-moved, i.e. it can move to a foundation and nothing else can stack on it
     fn can_auto_move(&self, card: Card) -> bool {
         if self.state.foundations[usize::from(card.suit)].rank != card.rank - 1 {
             return false;
         }
         match card.suit.colour() {
             Colour::Red => {
+                // "clubs" is false if there is any club not yet in the foundations which can stack on this card
                 let clubs = self.state.foundations[usize::from(Suit::Clubs)].rank >= card.rank - 1
                     || self.can_auto_move(Card::new(card.rank - 1, Suit::Clubs));
+                // "spades" is false if there is any spade not yet in the foundations which can stack on this card
                 let spades = self.state.foundations[usize::from(Suit::Spades)].rank
                     >= card.rank - 1
                     || self.can_auto_move(Card::new(card.rank - 1, Suit::Spades));
                 clubs && spades
             }
             Colour::Black => {
+                // "diamonds" is false if there is any diamond not yet in the foundations which can stack on this card
                 let diamonds = self.state.foundations[usize::from(Suit::Diamonds)].rank
                     >= card.rank - 1
                     || self.can_auto_move(Card::new(card.rank - 1, Suit::Diamonds));
+                // "hearts" is false if there is any heart not yet in the foundations which can stack on this card
                 let hearts = self.state.foundations[usize::from(Suit::Hearts)].rank
                     >= card.rank - 1
                     || self.can_auto_move(Card::new(card.rank - 1, Suit::Hearts));
@@ -416,7 +437,8 @@ impl fmt::Display for GameView {
     }
 }
 
-// these things are used by other modules in game, but are not exported by game
+// these things let other modules in logic affect the game state for testing & serialization.
+// not exported by logic
 pub mod inspect {
     use super::*;
 

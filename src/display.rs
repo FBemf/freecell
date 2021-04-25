@@ -9,8 +9,13 @@ use sdl2::rwops::RWops;
 use sdl2::surface::Surface;
 use sdl2::ttf::{Font, Sdl2TtfContext};
 
-use super::engine::*;
+use super::logic::*;
 
+// Holds
+// - the value of a card (suit & number)
+// - the x & y coords it occupies on the screen
+// - its logical position in the board state
+// - if it is in a stack, its position in the stack
 pub struct CardRect {
     pub card: Card,
     pub rect: Rect,
@@ -227,6 +232,7 @@ impl<'a, 'b: 'a> Fonts<'a, 'b> {
     }
 }
 
+// A palette holding all the colours which will be drawn to the screen
 struct Colours {
     background: Color,
     card_border: Color,
@@ -308,7 +314,7 @@ impl<'a, 'b: 'a> UISettings<'a, 'b> {
         })
     }
 
-    // update all the proportions and font sizes
+    // update all the proportions and font sizes.
     // used when the window size changes
     pub fn update_proportions(&mut self, canvas_width: u32, canvas_height: u32) -> Result<()> {
         self.dimensions = Dimensions::find(self.columns, canvas_width, canvas_height);
@@ -321,8 +327,9 @@ impl<'a, 'b: 'a> UISettings<'a, 'b> {
     }
 }
 
-// get all the rects representing all the cards
-// they're ordered in draw order, which means cards later in the list are on top
+// get all the rects representing all the cards.
+// they're listed in the order they should be drawn, so that if card A
+// should be drawn over card B, card A comes after card B
 pub fn get_card_rects(view: &GameView, settings: &UISettings) -> Vec<CardRect> {
     let mut board_rects = Vec::with_capacity(52);
     for (n, maybe_card) in view.free_cells.iter().enumerate() {
@@ -360,7 +367,9 @@ pub fn get_card_rects(view: &GameView, settings: &UISettings) -> Vec<CardRect> {
     board_rects
 }
 
-// get rects representing the areas you can place held cards
+// get rects representing the areas you can place held cards.
+// by checking which rect the mouse intersects with, you can find the address
+// the player is placing the card at
 pub fn get_placement_zones(settings: &UISettings) -> Vec<(CardAddress, Rect)> {
     let mut zones = Vec::with_capacity(16);
     for n in 0..4 {
@@ -396,8 +405,9 @@ pub fn get_placement_zones(settings: &UISettings) -> Vec<(CardAddress, Rect)> {
     zones
 }
 
-// get rects representing the cards currently held
-// they're ordered in draw order, which means cards later in the list are on top
+// get rects representing the cards which the player is currently moving with the cursor.
+// they're listed in the order they should be drawn, so that if card A
+// should be drawn over card B, card A comes after card B
 pub fn get_floating_rects(
     view: &GameView,
     settings: &UISettings,
@@ -459,12 +469,14 @@ pub fn draw_game<'a>(
     Ok(())
 }
 
+// draws a card to the screen
 fn draw_card<'a>(
     canvas: &mut Canvas<Surface<'a>>,
     settings: &UISettings,
     card: Card,
     rect: Rect,
 ) -> Result<()> {
+    // draw card background & outline
     canvas.set_draw_color(settings.colours.card_colour);
     canvas
         .fill_rect(rect)
@@ -473,6 +485,8 @@ fn draw_card<'a>(
     canvas
         .draw_rect(rect)
         .map_err(|e| anyhow!("drawing rect: {}", e))?;
+
+    // if the card has space, write suit & rank in card corner
     let text_colour = match card.suit {
         Suit::Clubs | Suit::Spades => settings.colours.black_card_colour,
         Suit::Hearts | Suit::Diamonds => settings.colours.red_card_colour,
@@ -494,8 +508,8 @@ fn draw_card<'a>(
     }
 }
 
-// draw big text in the middle of the screen
-// if background is unset, it's transparent
+// draw big text in the middle of the screen.
+// if background is unset, it's transparent (that leads to artifacts in the anti-aliasing tho)
 fn draw_text_centred<'a>(
     ui_settings: &UISettings,
     canvas: &'a mut Canvas<Surface>,
@@ -516,7 +530,7 @@ fn draw_text_centred<'a>(
 }
 
 // draw text at an arbitrary place.
-// if background is unset, it's transparent
+// if background is unset, it's transparent (that leads to artifacts in the anti-aliasing tho)
 fn draw_text<'a>(
     canvas: &'a mut Canvas<Surface>,
     font: &Font,
@@ -534,6 +548,8 @@ fn draw_text<'a>(
     Ok(())
 }
 
+// draw text to a surface.
+// if background is unset, it's transparent (that leads to artifacts in the anti-aliasing tho)
 fn create_text_surface(
     font: &Font,
     colour: Color,
@@ -551,6 +567,7 @@ fn create_text_surface(
     }
 }
 
+// Draw text in the middle of the window in the "victory" style
 pub fn draw_victory_text<'a>(
     ui_settings: &UISettings,
     canvas: &'a mut Canvas<Surface>,
@@ -566,6 +583,7 @@ pub fn draw_victory_text<'a>(
     )
 }
 
+// Draw text in the middle of the window in the "reset" style
 pub fn draw_reset_text<'a>(
     ui_settings: &UISettings,
     canvas: &'a mut Canvas<Surface>,
@@ -581,6 +599,7 @@ pub fn draw_reset_text<'a>(
     )
 }
 
+// Draw text in the corner of the window, where the status text goes
 pub fn draw_status_text<'a>(
     ui_settings: &UISettings,
     canvas: &'a mut Canvas<Surface>,
