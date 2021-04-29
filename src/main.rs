@@ -47,15 +47,6 @@ struct Opt {
     quiet: bool,
 }
 
-// NewGameState is a ype defining a finite state machine which
-// regulates the state of the "hold N to restart" process
-#[derive(Clone, PartialEq)]
-pub enum NewGameState {
-    Starting(Instant), // "starting" means "if N isn't released, the game will restart at <instant>"
-    Cooldown, // "cooldown" means "game just restarted, so N is still held, but we're no longer restarting"
-    Ready,
-}
-
 // holds the current state of the game
 pub struct State<'a, 'b: 'a> {
     opt: Opt,
@@ -90,11 +81,11 @@ fn main() -> Result<()> {
     let mut state = initialize_state(cli_options, canvas, &ttf_context)?;
 
     // This is the main game loop
-    'running: loop {
+    'main: loop {
         // Handle all events queued up in the event pump
         for event in event_pump.poll_iter() {
             if handle_event(event, &mut state)? {
-                break 'running;
+                break 'main;
             }
         }
 

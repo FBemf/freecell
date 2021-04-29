@@ -20,6 +20,16 @@ pub struct InterfaceState {
     pub s_key_held: bool,
 }
 
+// NewGameState is a ype defining a finite state machine which
+// regulates the state of the "hold N to restart" process
+#[derive(Clone, PartialEq)]
+pub enum NewGameState {
+    Starting(Instant), // "starting" means "if N isn't released, the game will restart at <instant>"
+    Cooldown, // "cooldown" means "game just restarted, so N is still held, but we're no longer restarting"
+    Ready,
+}
+
+
 impl InterfaceState {
     pub fn new(ui_settings: &UiSettings) -> Self {
         // timeout until an automatic move can be performed
