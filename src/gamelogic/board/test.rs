@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_moves() {
-    let mut spread = inspect::game_from_columns(vec![
+    let mut spread = inspect::board_from_columns(vec![
         vec![
             Card::new(6, Suit::Hearts),
             Card::new(5, Suit::Spades),
@@ -156,7 +156,7 @@ fn test_moves() {
 
 #[test]
 fn auto_move() {
-    let mut game = inspect::game_from_columns(vec![
+    let mut game = inspect::board_from_columns(vec![
         (1..=5)
             .rev()
             .map(|n| Card::new(n, Suit::Spades))
@@ -192,15 +192,15 @@ fn auto_move() {
 #[test]
 fn test_rng() {
     for seed in 0..10 {
-        let a = Game::new_game(seed);
-        let b = Game::new_game(seed);
+        let a = Board::new_game(seed);
+        let b = Board::new_game(seed);
         assert_eq!(a, b);
     }
 }
 
 #[test]
 fn test_won() {
-    let mut game = Game::empty();
+    let mut game = Board::empty();
     assert!(!game.view().is_won());
     game.state.foundations = vec![
         Card::new(13, Suit::Clubs),

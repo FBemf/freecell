@@ -9,7 +9,7 @@ use sdl2::rwops::RWops;
 use sdl2::surface::Surface;
 use sdl2::ttf::{Font, Sdl2TtfContext};
 
-use super::logic::*;
+use super::gamelogic::*;
 
 // Holds
 // - the value of a card (suit & number)
@@ -330,7 +330,7 @@ impl<'a, 'b: 'a> UiSettings<'a, 'b> {
 // get all the rects representing all the cards.
 // they're listed in the order they should be drawn, so that if card A
 // should be drawn over card B, card A comes after card B
-pub fn get_card_rects(view: &GameView, settings: &UiSettings) -> Vec<CardRect> {
+pub fn get_card_rects(view: &BoardView, settings: &UiSettings) -> Vec<CardRect> {
     let mut board_rects = Vec::with_capacity(52);
     for (n, maybe_card) in view.free_cells.iter().enumerate() {
         if let Some(card) = maybe_card {
@@ -409,7 +409,7 @@ pub fn get_placement_zones(settings: &UiSettings) -> Vec<(CardAddress, Rect)> {
 // they're listed in the order they should be drawn, so that if card A
 // should be drawn over card B, card A comes after card B
 pub fn get_floating_rects(
-    view: &GameView,
+    view: &BoardView,
     settings: &UiSettings,
     mouse_x: i32,
     mouse_y: i32,
@@ -436,9 +436,9 @@ pub fn draw_background(canvas: &mut Canvas<sdl2::video::Window>, settings: &UiSe
 }
 
 // draw the background & all the cards
-pub fn draw_game<'a>(
+pub fn draw_board<'a>(
     canvas: &mut Canvas<Surface<'a>>,
-    view: &GameView,
+    view: &BoardView,
     settings: &UiSettings,
     mouse: (i32, i32),
 ) -> Result<()> {

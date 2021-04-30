@@ -13,12 +13,12 @@ use sdl2::EventPump;
 use structopt::StructOpt;
 
 mod display;
+mod gamelogic;
 mod interface;
-mod logic;
 
 use display::*;
+use gamelogic::*;
 use interface::*;
-use logic::*;
 
 /// Play FreeCell
 ///
@@ -35,7 +35,7 @@ use logic::*;
 /// By loading from a seed, you can replay the same exact deal.
 #[derive(Clone, StructOpt)]
 #[structopt(name = "freecell", about = "FreeCell solitaire game")]
-struct Opt {
+struct CliOptions {
     /// Seed to randomly generate game from
     #[structopt(short, long)]
     seed: Option<u64>,
@@ -48,10 +48,10 @@ struct Opt {
 }
 
 // holds the current state of the game
-pub struct State<'a, 'b: 'a> {
-    opt: Opt,
-    game: Game,
-    undo_stack: GameUndoStack,
+pub struct GameState<'a, 'b: 'a> {
+    opt: CliOptions,
+    game: Board,
+    undo_stack: BoardUndoStack,
     ui_settings: UiSettings<'a, 'b>,
     clipboard: Option<ClipboardContext>,
     canvas: Canvas<Window>,
@@ -60,7 +60,7 @@ pub struct State<'a, 'b: 'a> {
 }
 
 fn main() -> Result<()> {
-    let cli_options = Opt::from_args();
+    let cli_options = CliOptions::from_args();
 
     // Build the window, canvas, and event pump
     let ttf_context = sdl2::ttf::init()?;
@@ -73,39 +73,35 @@ fn main() -> Result<()> {
         .build()
         .context("building window")?;
     let canvas = window.into_canvas().build().context("building canvas")?;
-    let mut event_pump = sdl_context
+    let mut user_input_events = sdl_context
         .event_pump()
         .map_err(|s| anyhow!("getting event pump: {}", s))?;
 
-    // Initialize the game state
-    let mut state = initialize_state(cli_options, canvas, &ttf_context)?;
+    let mut game_state = initialize_state(cli_options, canvas, &ttf_context)?;
 
-    // This is the main game loop
+    // runs every step
     'main: loop {
-        // Handle all events queued up in the event pump
-        for event in event_pump.poll_iter() {
-            if handle_event(event, &mut state)? {
+        for event in user_input_events.poll_iter() {
+            if handle_event(event, &mut game_state)? {
                 break 'main;
             }
         }
 
-        // Update canvas & state
-        draw_canvas(&mut state, &event_pump)?;
-        update(&mut state);
+        draw_canvas(&mut game_state, &user_input_events)?;
+        update_game_state(&mut game_state);
 
         // Wait one sixtieth of a second
         sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
-
     Ok(())
 }
 
 // Set up the struct which holds the state of the game
 fn initialize_state(
-    opt: Opt,
+    opt: CliOptions,
     canvas: Canvas<Window>,
     ttf_context: &Sdl2TtfContext,
-) -> Result<State> {
+) -> Result<GameState> {
     // Get clipboard controller
     let clipboard: Option<ClipboardContext> = if let Ok(c) = ClipboardProvider::new() {
         Some(c)
@@ -124,14 +120,14 @@ fn initialize_state(
     let interface_state = InterfaceState::new(&ui_settings);
 
     // Initialize the game state, either from a random seed or by loading a save file
-    let (seed, game, undo_stack) = if let Some(path) = &opt.load {
+    let (seed, game, undo_stack) = if let Some(save_file_path) = &opt.load {
         if !opt.quiet {
             if opt.seed.is_some() {
                 eprintln!("Ignoring seed in favour of loading from file");
             }
-            eprintln!("Loading from {:?}", path);
+            eprintln!("Loading from {:?}", save_file_path);
         }
-        load(path)?
+        load(save_file_path)?
     } else {
         // random seed
         let seed = if let Some(s) = opt.seed {
@@ -142,10 +138,10 @@ fn initialize_state(
         if !opt.quiet {
             eprintln!("Seed is {}", seed);
         }
-        (seed, Game::new_game(seed), GameUndoStack::new())
+        (seed, Board::new_game(seed), BoardUndoStack::new())
     };
 
-    Ok(State {
+    Ok(GameState {
         opt,
         canvas,
         clipboard,
@@ -157,9 +153,11 @@ fn initialize_state(
     })
 }
 
-fn update(state: &mut State) {
-    // If we're not still on auto-move cooldown, try auto-moving cards to the foundations
+// updates the state of the game; executed every step
+fn update_game_state(state: &mut GameState) {
+    // If we're not still on cooldown from the last auto-move
     if state.interface_state.next_auto_move <= Instant::now() {
+        // try auto-moving another card to the foundations
         if let Some(new_state) = state.game.auto_move_to_foundations() {
             state.game = state.undo_stack.sneak_update(state.game.clone(), new_state);
             // reset timeout
@@ -174,8 +172,8 @@ fn update(state: &mut State) {
             // restart game with new seed
             let seed: u64 = thread_rng().gen();
             state.seed = seed;
-            state.game = Game::new_game(seed);
-            state.undo_stack = GameUndoStack::new();
+            state.game = Board::new_game(seed);
+            state.undo_stack = BoardUndoStack::new();
             state.interface_state.n_key_state = NewGameState::Cooldown;
             state.interface_state.status_text = None;
             state.interface_state.next_auto_move =

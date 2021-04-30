@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use std::env;
 
 use super::display::*;
-use super::logic::*;
+use super::gamelogic::*;
 use super::*;
 
 // Holds a few state machines and times that regulate the UI
@@ -29,7 +29,6 @@ pub enum NewGameState {
     Ready,
 }
 
-
 impl InterfaceState {
     pub fn new(ui_settings: &UiSettings) -> Self {
         // timeout until an automatic move can be performed
@@ -49,8 +48,8 @@ impl InterfaceState {
     }
 }
 
-// pick up cards at (x, y)
-fn pick_up_cards(state: &mut State, x: i32, y: i32) {
+// pick up the cards on the board at (x, y) with the cursor
+fn pick_up_cards(state: &mut GameState, x: i32, y: i32) {
     // if the player is not holding cards
     if !state.game.has_floating() {
         // find which card (if any) the player is clicking on
@@ -85,7 +84,7 @@ fn pick_up_cards(state: &mut State, x: i32, y: i32) {
 }
 
 // place cards at (x, y)
-fn place_cards(state: &mut State, x: i32, y: i32) {
+fn place_cards(state: &mut GameState, x: i32, y: i32) {
     // if the player is holding cards
     if state.game.has_floating() {
         let mut did_something = false;
@@ -109,7 +108,7 @@ fn place_cards(state: &mut State, x: i32, y: i32) {
     }
 }
 
-fn copy_seed(state: &mut State) {
+fn copy_seed_to_clipboard(state: &mut GameState) {
     if let Some(ctx) = &mut state.clipboard {
         if let Err(e) = ctx.set_contents(state.seed.to_string()) {
             state.interface_state.status_text = Some((
@@ -136,7 +135,7 @@ fn copy_seed(state: &mut State) {
     }
 }
 
-fn save_game(state: &mut State) -> Result<()> {
+fn save_game(state: &mut GameState) -> Result<()> {
     match save(
         state.seed,
         &state.game,
@@ -166,9 +165,9 @@ fn save_game(state: &mut State) -> Result<()> {
     Ok(())
 }
 
-// handle a user interface event by modifying the game state.
+// handle a user input event by modifying the game state.
 // returns true when it is time to exit the game.
-pub fn handle_event(event: Event, state: &mut State) -> Result<bool> {
+pub fn handle_event(event: Event, state: &mut GameState) -> Result<bool> {
     match event {
         Event::Quit { .. } => {
             return Ok(true);
@@ -192,7 +191,7 @@ pub fn handle_event(event: Event, state: &mut State) -> Result<bool> {
                 state.game = state.undo_stack.redo(state.game.clone());
             }
             Keycode::C => {
-                copy_seed(state);
+                copy_seed_to_clipboard(state);
             }
             Keycode::S => {
                 if !state.interface_state.s_key_held {
@@ -242,7 +241,7 @@ pub fn handle_event(event: Event, state: &mut State) -> Result<bool> {
     Ok(false)
 }
 
-pub fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
+pub fn draw_canvas(state: &mut GameState, event_pump: &EventPump) -> Result<()> {
     // build frame & mouse state
     let frame = sdl2::surface::Surface::new(
         state.canvas.viewport().width(),
@@ -255,8 +254,8 @@ pub fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
         .map_err(|s| anyhow!("getting event pump: {}", s))?;
     let mouse = MouseState::new(&event_pump);
 
-    // Draw game onto the frame based on mouse state
-    draw_game(
+    // Draw board state onto the frame based on mouse state
+    draw_board(
         &mut frame,
         &state.game.view(),
         &state.ui_settings,
@@ -266,6 +265,7 @@ pub fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
     // Read status text and draw it to frame
     let status_text = if let Some((instant, text)) = state.interface_state.status_text.clone() {
         if instant < Instant::now() {
+            // clear expired message
             state.interface_state.status_text = None;
         }
         text
@@ -275,7 +275,7 @@ pub fn draw_canvas(state: &mut State, event_pump: &EventPump) -> Result<()> {
     draw_status_text(&state.ui_settings, &mut frame, &status_text)?;
 
     // If N is being held down, draw a restart message on the screen.
-    // The opacity of that message increases gradually as N is held longer & longer
+    // The message changes gradually as N is held longer & longer
     if let NewGameState::Starting(restart_time) = state.interface_state.n_key_state {
         let now = Instant::now();
         if restart_time > now {

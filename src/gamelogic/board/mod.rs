@@ -13,12 +13,12 @@ use super::error::*;
 mod test;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Game {
+pub struct Board {
     // unstable internal state of the game
     state: State,
     // api-stable state of the game
     // pre-calculated, so that you can call view() multiple times and not copy data every time
-    view: GameView,
+    view: BoardView,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -30,8 +30,8 @@ struct State {
     floating_stack: Option<Vec<Card>>,
 }
 
-impl From<State> for Game {
-    // we handle only States internally, and we return Games with state.into().
+impl From<State> for Board {
+    // we handle only States internally, and we return Boards with state.into().
     // this way, we always correctly calculate the new view right when we return
     fn from(state: State) -> Self {
         let floating = if let Some(card) = state.floating {
@@ -41,17 +41,17 @@ impl From<State> for Game {
         } else {
             None
         };
-        let view = GameView {
+        let view = BoardView {
             columns: state.columns.clone(),
             foundations: state.foundations.clone(),
             free_cells: state.free_cells.clone(),
             floating,
         };
-        Game { state, view }
+        Board { state, view }
     }
 }
 
-impl Game {
+impl Board {
     fn empty() -> Self {
         State {
             columns: Vec::new(),
@@ -67,7 +67,7 @@ impl Game {
 
     // shuffle & create a new game
     pub fn new_game(seed: u64) -> Self {
-        let mut spread = Game::empty().state;
+        let mut spread = Board::empty().state;
         let mut deck = Vec::with_capacity(52);
         for &suit in &[Suit::Clubs, Suit::Diamonds, Suit::Spades, Suit::Hearts] {
             for rank in 1..=13 {
@@ -297,7 +297,7 @@ impl Game {
     }
 
     // get a look at the state of the board
-    pub fn view(&self) -> &GameView {
+    pub fn view(&self) -> &BoardView {
         &self.view
     }
 
@@ -379,14 +379,14 @@ impl Game {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct GameView {
+pub struct BoardView {
     pub columns: Vec<Vec<Card>>,
     pub foundations: Vec<Card>,
     pub free_cells: Vec<Option<Card>>,
     pub floating: Option<Vec<Card>>,
 }
 
-impl GameView {
+impl BoardView {
     pub fn is_won(&self) -> bool {
         self.foundations
             .iter()
@@ -396,7 +396,7 @@ impl GameView {
     }
 }
 
-impl fmt::Display for GameView {
+impl fmt::Display for BoardView {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for cell in &self.free_cells {
             if let Some(card) = cell {
@@ -445,17 +445,17 @@ pub mod inspect {
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     pub struct StateContainer(State);
 
-    pub fn game_get_state(game: &Game) -> StateContainer {
+    pub fn board_get_state(game: &Board) -> StateContainer {
         StateContainer(game.state.clone())
     }
 
-    pub fn game_from_state(state: StateContainer) -> Game {
+    pub fn board_from_state(state: StateContainer) -> Board {
         state.0.into()
     }
 
     #[cfg(test)]
-    pub fn game_from_columns(columns: Vec<Vec<Card>>) -> Game {
-        let mut game = Game::empty().state;
+    pub fn board_from_columns(columns: Vec<Vec<Card>>) -> Board {
+        let mut game = Board::empty().state;
         game.columns = columns;
         game.into()
     }

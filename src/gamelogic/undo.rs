@@ -2,23 +2,23 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use super::game::*;
+use super::board::*;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct GameUndoStack {
-    history: Vec<(bool, Game)>,
-    undo_history: Vec<Game>,
+pub struct BoardUndoStack {
+    history: Vec<(bool, Board)>,
+    undo_history: Vec<Board>,
 }
 
-impl GameUndoStack {
+impl BoardUndoStack {
     pub fn new() -> Self {
-        GameUndoStack {
+        BoardUndoStack {
             history: Vec::new(),
             undo_history: Vec::new(),
         }
     }
 
-    pub fn update(&mut self, old_state: Game, new_state: Game) -> Game {
+    pub fn update(&mut self, old_state: Board, new_state: Board) -> Board {
         // no no-ops
         if old_state == new_state {
             return new_state;
@@ -33,7 +33,7 @@ impl GameUndoStack {
             }
         }
         if let Some(n) = new_len {
-            let mut truncated: Vec<Game> = self
+            let mut truncated: Vec<Board> = self
                 .history
                 .split_off(n)
                 .into_iter()
@@ -61,7 +61,7 @@ impl GameUndoStack {
     }
 
     // sneak updates will, upon being undone, immediately trigger another undo
-    pub fn sneak_update(&mut self, old_state: Game, new_state: Game) -> Game {
+    pub fn sneak_update(&mut self, old_state: Board, new_state: Board) -> Board {
         if let Some((_, last_state)) = self.history.last() {
             // don't push no-ops
             if last_state != &old_state {
@@ -80,7 +80,7 @@ impl GameUndoStack {
         new_state
     }
 
-    pub fn undo(&mut self, state: Game) -> Game {
+    pub fn undo(&mut self, state: Board) -> Board {
         if !state.has_floating() {
             self.undo_history.push(state);
         }
@@ -96,7 +96,7 @@ impl GameUndoStack {
         self.undo_history.pop().unwrap()
     }
 
-    pub fn redo(&mut self, state: Game) -> Game {
+    pub fn redo(&mut self, state: Board) -> Board {
         if let Some(undone_state) = self.undo_history.pop() {
             if !state.has_floating() {
                 self.history.push((false, state));
@@ -108,7 +108,7 @@ impl GameUndoStack {
     }
 }
 
-impl fmt::Display for GameUndoStack {
+impl fmt::Display for BoardUndoStack {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "UNDO:")?;
         for (sneak, state) in self.history.iter() {
@@ -127,17 +127,17 @@ impl fmt::Display for GameUndoStack {
 
 #[cfg(test)]
 mod test {
+    use super::super::board::inspect::*;
     use super::super::card::*;
-    use super::super::game::inspect::*;
     use super::*;
 
     #[test]
     fn undo_redo() {
-        let mut game = game_from_columns(vec![
+        let mut game = board_from_columns(vec![
             vec![Card::new(2, Suit::Diamonds), Card::new(1, Suit::Clubs)],
             Vec::new(),
         ]);
-        let mut undo_stack = GameUndoStack::new();
+        let mut undo_stack = BoardUndoStack::new();
 
         // basic undo
         let game_state_1 = game.clone();
@@ -157,12 +157,12 @@ mod test {
 
     #[test]
     fn manual_undo() {
-        let mut game = game_from_columns(vec![
+        let mut game = board_from_columns(vec![
             vec![Card::new(2, Suit::Clubs), Card::new(1, Suit::Diamonds)],
             Vec::new(),
             Vec::new(),
         ]);
-        let mut undo_stack = GameUndoStack::new();
+        let mut undo_stack = BoardUndoStack::new();
 
         let game_state_1 = game.clone();
         game = undo_stack.update(
@@ -197,11 +197,11 @@ mod test {
 
     #[test]
     fn manual_redo() {
-        let mut game = game_from_columns(vec![
+        let mut game = board_from_columns(vec![
             vec![Card::new(1, Suit::Clubs), Card::new(2, Suit::Diamonds)],
             Vec::new(),
         ]);
-        let mut undo_stack = GameUndoStack::new();
+        let mut undo_stack = BoardUndoStack::new();
 
         let game_state_1 = game.clone();
         game = undo_stack.update(
@@ -234,11 +234,11 @@ mod test {
 
     #[test]
     fn nop_skipping() {
-        let mut game = game_from_columns(vec![
+        let mut game = board_from_columns(vec![
             vec![Card::new(1, Suit::Clubs), Card::new(2, Suit::Diamonds)],
             Vec::new(),
         ]);
-        let mut undo_stack = GameUndoStack::new();
+        let mut undo_stack = BoardUndoStack::new();
 
         game = undo_stack.update(
             game.clone(),
@@ -268,11 +268,11 @@ mod test {
 
     #[test]
     fn sneak_skipping() {
-        let mut game = game_from_columns(vec![
+        let mut game = board_from_columns(vec![
             vec![Card::new(1, Suit::Clubs), Card::new(2, Suit::Diamonds)],
             Vec::new(),
         ]);
-        let mut undo_stack = GameUndoStack::new();
+        let mut undo_stack = BoardUndoStack::new();
 
         let game_state_1 = game.clone();
         game = undo_stack.update(
@@ -289,13 +289,13 @@ mod test {
 
     #[test]
     fn no_ops() {
-        let mut game = game_from_columns(vec![
+        let mut game = board_from_columns(vec![
             vec![Card::new(2, Suit::Clubs), Card::new(1, Suit::Diamonds)],
             Vec::new(),
             Vec::new(),
             Vec::new(),
         ]);
-        let mut undo_stack = GameUndoStack::new();
+        let mut undo_stack = BoardUndoStack::new();
 
         let game_state_1 = game.clone();
         game = undo_stack.update(
