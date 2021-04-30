@@ -51,9 +51,9 @@ impl InterfaceState {
 // pick up the cards on the board at (x, y) with the cursor
 fn pick_up_cards(state: &mut GameState, x: i32, y: i32) {
     // if the player is not holding cards
-    if !state.game.has_floating() {
+    if !state.board.has_floating() {
         // find which card (if any) the player is clicking on
-        for card_rect in get_card_rects(&state.game.view(), &state.ui_settings)
+        for card_rect in get_card_rects(&state.board.view(), &state.ui_settings)
             .iter()
             .rev()
         {
@@ -61,18 +61,18 @@ fn pick_up_cards(state: &mut GameState, x: i32, y: i32) {
                 if let Some(size) = card_rect.stack_size {
                     // if the card being clicked on is part of a stack
                     // pick up the card and all the cards stacked on top of it
-                    match state.game.pick_up_stack(card_rect.address, size) {
+                    match state.board.pick_up_stack(card_rect.address, size) {
                         Ok(new_state) => {
-                            state.game = state.undo_stack.update(state.game.clone(), new_state);
+                            state.board = state.undo_stack.update(state.board.clone(), new_state);
                         }
                         Err(MoveError::CannotPickUp { .. }) => {}
                         Err(_) => unreachable!(),
                     }
                 } else {
                     // if the card is not in a stack, just pick up the one card
-                    match state.game.pick_up_card(card_rect.address) {
+                    match state.board.pick_up_card(card_rect.address) {
                         Ok(new_state) => {
-                            state.game = state.undo_stack.update(state.game.clone(), new_state);
+                            state.board = state.undo_stack.update(state.board.clone(), new_state);
                         }
                         Err(MoveError::CannotPickUp { .. }) => {}
                         Err(_) => unreachable!(),
@@ -86,16 +86,16 @@ fn pick_up_cards(state: &mut GameState, x: i32, y: i32) {
 // place cards at (x, y)
 fn place_cards(state: &mut GameState, x: i32, y: i32) {
     // if the player is holding cards
-    if state.game.has_floating() {
+    if state.board.has_floating() {
         let mut did_something = false;
         // find the location in the game layout corresponding to the mouse's location
         for (address, rect) in get_placement_zones(&state.ui_settings).iter() {
             if rect_intersect(x, y, rect) {
                 // place the card at that location
-                match state.game.place(*address) {
+                match state.board.place(*address) {
                     Ok(new_state) => {
                         did_something = true;
-                        state.game = state.undo_stack.update(state.game.clone(), new_state);
+                        state.board = state.undo_stack.update(state.board.clone(), new_state);
                     }
                     Err(MoveError::CannotPlace { .. }) => {}
                     Err(_) => unreachable!(),
@@ -103,7 +103,7 @@ fn place_cards(state: &mut GameState, x: i32, y: i32) {
             }
         }
         if !did_something {
-            state.game = state.undo_stack.undo(state.game.clone());
+            state.board = state.undo_stack.undo(state.board.clone());
         }
     }
 }
@@ -138,7 +138,7 @@ fn copy_seed_to_clipboard(state: &mut GameState) {
 fn save_game(state: &mut GameState) -> Result<()> {
     match save(
         state.seed,
-        &state.game,
+        &state.board,
         &state.undo_stack,
         env::current_dir()?,
         "freecell_save.",
@@ -185,10 +185,10 @@ pub fn handle_event(event: Event, state: &mut GameState) -> Result<bool> {
             keycode: Some(key), ..
         } => match key {
             Keycode::Backspace => {
-                state.game = state.undo_stack.undo(state.game.clone());
+                state.board = state.undo_stack.undo(state.board.clone());
             }
             Keycode::Return => {
-                state.game = state.undo_stack.redo(state.game.clone());
+                state.board = state.undo_stack.redo(state.board.clone());
             }
             Keycode::C => {
                 copy_seed_to_clipboard(state);
@@ -251,31 +251,45 @@ pub fn draw_canvas(state: &mut GameState, event_pump: &EventPump) -> Result<()> 
     .unwrap();
     let mut frame = frame
         .into_canvas()
-        .map_err(|s| anyhow!("getting event pump: {}", s))?;
+        .map_err(|s| anyhow!("creating canvas from surface: {}", s))?;
     let mouse = MouseState::new(&event_pump);
 
-    // Draw board state onto the frame based on mouse state
+    // Draw game to frame
     draw_board(
         &mut frame,
-        &state.game.view(),
+        &state.board.view(),
         &state.ui_settings,
         (mouse.x(), mouse.y()),
     )?;
-
-    // Read status text and draw it to frame
-    let status_text = if let Some((instant, text)) = state.interface_state.status_text.clone() {
-        if instant < Instant::now() {
-            // clear expired message
-            state.interface_state.status_text = None;
-        }
-        text
+    if let Some((_, text)) = &state.interface_state.status_text {
+        draw_status_text(&state.ui_settings, &mut frame, text)?;
     } else {
-        format!("seed: {}", state.seed)
+        draw_status_text(
+            &state.ui_settings,
+            &mut frame,
+            &format!("seed: {}", state.seed),
+        )?;
     };
-    draw_status_text(&state.ui_settings, &mut frame, &status_text)?;
+    draw_restart_message(&mut frame, state)?;
 
-    // If N is being held down, draw a restart message on the screen.
-    // The message changes gradually as N is held longer & longer
+    // draw background to canvas, then draw the frame on top of it
+    draw_background(&mut state.canvas, &state.ui_settings);
+    let texture_creator = state.canvas.texture_creator();
+    let frame_tex = texture_creator.create_texture_from_surface(frame.surface())?;
+    state
+        .canvas
+        .copy(&frame_tex, None, None)
+        .map_err(|s| anyhow!("writing frame to canvas: {}", s))?;
+    state.canvas.present();
+    Ok(())
+}
+
+// If restart key is being held down, draw a restart message on the screen.
+// The message changes gradually as N is held longer & longer
+fn draw_restart_message(
+    frame: &mut Canvas<sdl2::surface::Surface>,
+    state: &GameState,
+) -> Result<()> {
     if let NewGameState::Starting(restart_time) = state.interface_state.n_key_state {
         let now = Instant::now();
         if restart_time > now {
@@ -286,7 +300,7 @@ pub fn draw_canvas(state: &mut GameState, event_pump: &EventPump) -> Result<()> 
                         / state.ui_settings.timings().new_game_secs.as_secs_f64();
                 draw_reset_text(
                     &state.ui_settings,
-                    &mut frame,
+                    frame,
                     &format!(
                         "Shuffling{}",
                         ".".repeat((6.0 * proportion_elapsed).floor() as usize)
@@ -294,19 +308,9 @@ pub fn draw_canvas(state: &mut GameState, event_pump: &EventPump) -> Result<()> 
                 )?;
             }
         }
-    } else if state.game.view().is_won() {
+    } else if state.board.view().is_won() {
         // otherwise, if the game is won, draw victory text
-        draw_victory_text(&state.ui_settings, &mut frame, "You Win!")?;
+        draw_victory_text(&state.ui_settings, frame, "You Win!")?;
     }
-
-    // draw background, then draw the scene on top of it
-    draw_background(&mut state.canvas, &state.ui_settings);
-    let texture_creator = state.canvas.texture_creator();
-    let frame_tex = texture_creator.create_texture_from_surface(frame.surface())?;
-    state
-        .canvas
-        .copy(&frame_tex, None, None)
-        .map_err(|s| anyhow!("getting event pump: {}", s))?;
-    state.canvas.present();
     Ok(())
 }

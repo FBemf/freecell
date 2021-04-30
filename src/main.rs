@@ -50,7 +50,7 @@ struct CliOptions {
 // holds the current state of the game
 pub struct GameState<'a, 'b: 'a> {
     opt: CliOptions,
-    game: Board,
+    board: Board,
     undo_stack: BoardUndoStack,
     ui_settings: UiSettings<'a, 'b>,
     clipboard: Option<ClipboardContext>,
@@ -120,7 +120,7 @@ fn initialize_state(
     let interface_state = InterfaceState::new(&ui_settings);
 
     // Initialize the game state, either from a random seed or by loading a save file
-    let (seed, game, undo_stack) = if let Some(save_file_path) = &opt.load {
+    let (seed, board, undo_stack) = if let Some(save_file_path) = &opt.load {
         if !opt.quiet {
             if opt.seed.is_some() {
                 eprintln!("Ignoring seed in favour of loading from file");
@@ -146,7 +146,7 @@ fn initialize_state(
         canvas,
         clipboard,
         ui_settings,
-        game,
+        board,
         undo_stack,
         interface_state,
         seed,
@@ -158,11 +158,20 @@ fn update_game_state(state: &mut GameState) {
     // If we're not still on cooldown from the last auto-move
     if state.interface_state.next_auto_move <= Instant::now() {
         // try auto-moving another card to the foundations
-        if let Some(new_state) = state.game.auto_move_to_foundations() {
-            state.game = state.undo_stack.sneak_update(state.game.clone(), new_state);
+        if let Some(new_state) = state.board.auto_move_to_foundations() {
+            state.board = state
+                .undo_stack
+                .sneak_update(state.board.clone(), new_state);
             // reset timeout
             state.interface_state.next_auto_move =
                 Instant::now() + state.ui_settings.timings().auto_move_secs;
+        }
+    }
+
+    // Clear status text if it has expired
+    if let Some((instant, _)) = state.interface_state.status_text {
+        if instant < Instant::now() {
+            state.interface_state.status_text = None;
         }
     }
 
@@ -172,7 +181,7 @@ fn update_game_state(state: &mut GameState) {
             // restart game with new seed
             let seed: u64 = thread_rng().gen();
             state.seed = seed;
-            state.game = Board::new_game(seed);
+            state.board = Board::new_game(seed);
             state.undo_stack = BoardUndoStack::new();
             state.interface_state.n_key_state = NewGameState::Cooldown;
             state.interface_state.status_text = None;
